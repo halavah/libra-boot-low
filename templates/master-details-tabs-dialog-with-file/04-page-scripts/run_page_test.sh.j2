@@ -1,0 +1,184 @@
+#!/bin/bash
+# ============================================================
+# 脚本名称: run_page_test.sh
+# 作用: 生成测试脚本 + 执行 Playwright 测试，输出到 05-out/{RUN_ID}/
+#
+# 【前置条件】
+#   1. 全局安装 Playwright: npm install -g @playwright/test
+#   2. 安装浏览器驱动: npx playwright install chromium
+#   3. Dev Server 已启动（默认 http://localhost:7080）
+#      或传入 --auto-dev 参数由本脚本自动启动
+#
+# 【用法】
+#   ./run_page_test.sh                # 默认模式（手动启动 dev server）
+#   ./run_page_test.sh --auto-dev     # 自动启动 dev server
+#
+# 【输出】
+#   ../05-out/{RUN_ID}/               - 本次运行的所有截图和报告
+#   ../05-out/{RUN_ID}/html/          - Playwright HTML 报告
+#   ../05-out/{RUN_ID}/results.json   - JSON 结果（机器可读）
+#   ../05-out/{RUN_ID}/test_summary.md- 测试摘要（人类可读）
+#   ../05-out/{RUN_ID}/error-results/ - 失败详情（截图/错误上下文）
+# ============================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_PID=""
+
+# ---- 生成本次运行 ID（时间戳） ----
+export TEST_RUN_ID="test_$(date +%Y%m%d_%H%M%S)"
+
+# ---- 加载 .env ----
+ENV_FILE="$(cd "${SCRIPT_DIR}/../../../../" && pwd)/.env"
+if [ -f "$ENV_FILE" ]; then
+  while IFS='=' read -r key value; do
+    key="${key%%#*}"
+    key="${key// /}"
+    [ -z "$key" ] && continue
+    export "$key=$value"
+  done < <(grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$')
+fi
+
+BASE_URL="${BASE_URL:-http://localhost:7080}"
+OUT_DIR="$SCRIPT_DIR/../05-out/$TEST_RUN_ID"
+
+echo "=========================================="
+echo "  Page Test Runner"
+echo "=========================================="
+echo "  Module   : {{ module.code.upper() }}"
+echo "  Base URL : $BASE_URL"
+echo "  Run ID   : $TEST_RUN_ID"
+echo "  Output   : $(realpath "$SCRIPT_DIR/../05-out")/$TEST_RUN_ID"
+echo "=========================================="
+
+# ---- 可选: 自动启动 Dev Server ----
+if [[ "$*" == *"--auto-dev"* ]]; then
+  echo ""
+  echo "[auto-dev] 正在启动前端 Dev Server..."
+  WEB_DIR="$(realpath "$SCRIPT_DIR/../../../../app-web")"
+
+  if [ ! -d "$WEB_DIR" ]; then
+    echo "Error: app-web 目录未找到: $WEB_DIR"
+    exit 1
+  fi
+
+  cd "$WEB_DIR"
+  npm run dev &
+  DEV_PID=$!
+  echo "[auto-dev] PID=$DEV_PID，等待 $BASE_URL 就绪..."
+
+  PORT="${BASE_URL##*:}"
+  for i in $(seq 1 60); do
+    if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+      echo "[auto-dev] [OK] Dev Server 已就绪（${i}s）"
+      break
+    fi
+    sleep 1
+  done
+
+  cd "$SCRIPT_DIR"
+fi
+
+# ---- 生成测试脚本 ----
+echo ""
+echo "[gen] 生成 index.test.js..."
+python3 "$SCRIPT_DIR/run_page_test.py" --force
+
+# ---- 创建本次运行输出目录 ----
+mkdir -p "$OUT_DIR"
+
+# ---- 执行测试 ----
+echo ""
+echo "[playwright] 执行测试..."
+# NODE_PATH 确保 require('@playwright/test') 能找到全局安装的包
+NODE_PATH=$(npm root -g) npx playwright test --config="$SCRIPT_DIR/playwright.config.js"
+
+# ---- 修复 HTML 报告为亮色主题 ----
+HTML_REPORT="$OUT_DIR/index.html"
+if [ -f "$HTML_REPORT" ]; then
+  echo ""
+  echo "[patch-html] 修复 HTML 报告亮色主题..."
+  python3 "$SCRIPT_DIR/run_page_test.py" --patch-html "$HTML_REPORT" --theme light
+fi
+
+# ---- 生成测试摘要 ----
+echo ""
+echo "[summary] 生成测试摘要..."
+python3 - <<PYEOF
+import json, sys
+from pathlib import Path
+
+run_id       = "$TEST_RUN_ID"
+results_file = Path("$OUT_DIR/results.json")
+summary_file = Path("$OUT_DIR/test_summary.md")
+
+if not results_file.exists():
+    print("[summary] results.json 不存在，跳过摘要生成")
+    sys.exit(0)
+
+with open(results_file, encoding='utf-8') as f:
+    data = json.load(f)
+
+stats   = data.get('stats', {})
+total   = stats.get('expected', 0)
+failed  = stats.get('unexpected', 0)
+skipped = stats.get('skipped', 0)
+
+# 递归遍历嵌套 suites，统计 passed 并收集详情行
+detail_lines = []
+passed = 0
+
+def walk_suites(suites, depth=0):
+    global passed
+    for s in suites:
+        title = s.get('title', '')
+        if title and depth > 0:
+            detail_lines.append(f'### {title}')
+            detail_lines.append('')
+        for spec in s.get('specs', []):
+            if spec.get('ok'):
+                passed += 1
+                icon = '[OK]'
+            else:
+                icon = '[FAIL]'
+            detail_lines.append(f'- {icon} {spec.get("title", "")}')
+        if s.get('specs'):
+            detail_lines.append('')
+        walk_suites(s.get('suites', []), depth + 1)
+
+walk_suites(data.get('suites', []))
+
+lines = [
+    f'# 测试摘要 — {run_id}',
+    '',
+    f'**模块**: {{ module.name }} ({{ module.code }})',
+    '',
+    f'| 项目 | 数量 |',
+    f'|------|------|',
+    f'| 总计 | {total} |',
+    f'| [OK] 通过 | {passed} |',
+    f'| [FAIL] 失败 | {failed} |',
+    f'| 跳过 | {skipped} |',
+    '',
+    '## 详细结果',
+    '',
+] + detail_lines
+
+summary_file.write_text('\n'.join(lines), encoding='utf-8')
+print(f"[summary] [OK] 已写入: {summary_file}")
+PYEOF
+
+echo ""
+echo "=========================================="
+echo "  测试完成！"
+echo "  截图目录: $OUT_DIR"
+echo "  HTML 报告: $OUT_DIR/index.html"
+echo "  测试摘要: $OUT_DIR/test_summary.md"
+echo "=========================================="
+
+# ---- 清理 Dev Server ----
+if [ -n "$DEV_PID" ]; then
+  echo "[auto-dev] 关闭 Dev Server (PID=$DEV_PID)..."
+  kill "$DEV_PID" 2>/dev/null || true
+fi

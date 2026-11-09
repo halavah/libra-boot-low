@@ -1,0 +1,205 @@
+# =====================================================
+# Single 模式 — 单表无附件
+# =====================================================
+# 适用场景: 简单的单表 CRUD，无附件上传需求
+#
+# UI 交互特点:
+#   - 列表页展示数据表格，支持条件搜索（G-form-search）
+#   - 点击「新增」按钮 → isType 切换到新增页面（*-add-or-edit.vue）
+#   - 点击「编辑」按钮 → isType 切换到编辑页面（*-add-or-edit.vue）
+#   - 点击「详情」按钮 → isType 切换到详情页面
+#   - 点击「删除」按钮 → ElMessageBox 确认后调用 remove 接口
+#   - 页面切换模式（isType），非 el-dialog 弹窗模式
+#
+# 接口数量: 11 个
+#   list / detail / add / update / remove / export
+#   toggle / physical-remove / batch-delete / batch-physical-delete / batch-update
+#
+# =====================================================
+# YAML 字段填写说明（single 模式）
+# =====================================================
+# project:
+#   name: 项目中文名（用于文档与展示）
+#   code: 项目编码（英文小写，如 demo）
+#   version: 版本号（如 1.0.0）
+#
+# modules:
+#   - name: 模块中文名
+#     code: 模块编码（英文小写，如 t1000）
+#     domain: 业务域编码（如 test）
+#     mode: 固定填写 single
+#     description: 模块说明（可选）
+#
+#     status_toggles: [可选] 状态切换按钮配置
+#       - field: 状态字段名（如 status）
+#         label: 中文标签
+#         values: { "0": "禁用", "1": "启用" }
+#         colors: { "0": "danger", "1": "success" }
+#
+#     batch_operations: [可选] 批量操作配置
+#       delete:
+#         enabled: true  # 启用批量逻辑删除
+#       update:
+#         enabled: true
+#         confirm_message: "确认批量更新选中的记录？"
+#         fields:
+#           - name: "title"
+#             label: "标题"
+#             type: "input"
+#             required: false
+#           - name: "year"
+#             label: "年度"
+#             type: "date-year"
+#             required: false
+#           - name: "status"
+#             label: "状态"
+#             type: "select"
+#             required: false
+#             options:
+#               - label: "进行中"
+#                 value: 1
+#               - label: "已完成"
+#                 value: 2
+#           - name: "remark"
+#             label: "备注"
+#             type: "textarea"
+#             required: false
+#
+#     fields: [必填] 字段列表
+#       - name: 字段英文名（camelCase）
+#         label: 字段中文名
+#         type: input/textarea/number/decimal/date/datetime/date-year/select
+#         required: 是否必填（true/false）
+#         filterable: 是否参与搜索（true/false）
+#         show_in_list: 是否列表显示（true/false）
+#         options: 仅 select 类型填写（label/value 列表）
+# =====================================================
+
+# =====================================================
+# 测试配置 - t1000 单表无附件
+# =====================================================
+# 模式: single
+# 附件配置: 无
+# 接口数量: 11（list/detail/add/update/remove/export/toggle/physical-remove/batch-delete/batch-physical-delete/batch-update）
+#
+# 验证产物:
+#   04-server/
+#     ├── controller/TestT1000Controller.java      # 11 接口
+#     ├── entity/po/BizTestT1000.java
+#     ├── entity/param/TestT1000Param.java
+#     ├── entity/param/TestT1000BatchUpdateParam.java  # 批量更新入参
+#     ├── entity/vo/TestT1000VO.java
+#     ├── mapper/TestT1000Mapper.java
+#     ├── mapper/xml/TestT1000Mapper.xml
+#     ├── service/ITestT1000Service.java
+#     └── service/impl/TestT1000ServiceImpl.java  # 无 MinIO 注入
+#   05-web/
+#     ├── views/test/t1000/index.vue               # 列表页（含批量操作按钮）
+#     ├── views/test/t1000/t1000-add-or-edit.vue   # 新增/编辑弹窗
+#     └── service/test/t1000.js                    # 11 个 API 方法
+#
+# 命名规则: {DomainPascal}{CodePascal}*
+#   如 TestT1000Controller, BizTestT1000, TestT1000Param, TestT1000VO
+# =====================================================
+
+project:
+  name: "Libra Boot Low"
+  code: "demo"
+  version: "1.0.0"
+
+modules:
+  - name: "单表无附件"
+    code: "t1000"
+    domain: "test"
+    mode: "single"
+    description: "T01 测试模块 - 单表无附件"
+
+    status_toggles:
+      - field: "status"
+        label: "状态"
+        values:
+          "0": "禁用"
+          "1": "启用"
+        colors:
+          "0": "danger"
+          "1": "success"
+
+    batch_operations:
+      delete:
+        enabled: true
+      update:
+        enabled: true
+        confirm_message: "确认批量更新选中的记录？"
+        fields:
+          - name: "status"
+            label: "状态"
+            type: "select"
+            required: false
+            options:
+              - label: "进行中"
+                value: 1
+              - label: "已完成"
+                value: 2
+              - label: "已取消"
+                value: 3
+          - name: "title"
+            label: "标题"
+            type: "input"
+            required: false
+          - name: "amount"
+            label: "金额"
+            type: "number"
+            required: false
+          - name: "remark"
+            label: "备注"
+            type: "textarea"
+            required: false
+
+    fields:
+      - name: "title"
+        label: "标题"
+        type: "input"
+        required: true
+        filterable: true
+        show_in_list: true
+      - name: "category"
+        label: "分类"
+        type: "select"
+        required: true
+        filterable: true
+        show_in_list: true
+        options:
+          - label: "类型A"
+            value: 1
+          - label: "类型B"
+            value: 2
+          - label: "类型C"
+            value: 3
+      - name: "applyDate"
+        label: "申请日期"
+        type: "date"
+        required: true
+        show_in_list: true
+      - name: "year"
+        label: "所属年度"
+        type: "date-year"
+        filterable: true
+        show_in_list: true
+      - name: "amount"
+        label: "金额"
+        type: "number"
+        show_in_list: true
+      - name: "remark"
+        label: "备注"
+        type: "textarea"
+      - name: "status"
+        label: "状态"
+        type: "select"
+        required: true
+        filterable: true
+        show_in_list: true
+        options:
+          - label: "禁用"
+            value: 0
+          - label: "启用"
+            value: 1

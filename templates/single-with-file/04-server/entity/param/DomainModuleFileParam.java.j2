@@ -1,0 +1,27 @@
+package {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.param;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+/**
+ * {{ module.name }} 附件入参
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+@Schema(description = "{{ module.name }}附件入参")
+public class {{ module.domain_pascal }}{{ module.code_pascal }}FileParam {
+
+    @Schema(description = "附件类型：{% for ft in module.file_types %}{{ ft.code }}={{ ft.label }}{% if not loop.last %}，{% endif %}{% endfor %}")
+    private String fileType;
+
+    @Schema(description = "MinIO文件绝对地址")
+    private String fileUrl;
+
+    @Schema(description = "原始文件名")
+    private String fileName;
+}

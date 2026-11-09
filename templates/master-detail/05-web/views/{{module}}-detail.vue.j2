@@ -1,0 +1,83 @@
+<template>
+  <div class="container">
+    <el-scrollbar>
+      <G-back title="{{ detail_module.name }}详情" @go-back="goBack"></G-back>
+
+      <!-- 基本信息 -->
+      <el-card class="info-card">
+        <template #header>
+          <span>基本信息</span>
+        </template>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="{{ master_module.name }}">{{ '{{' }} info.masterName {{ '}}' }}</el-descriptions-item>
+{% for field in detail_fields %}{% if not field.generated %}
+{% if field.type == 'select' and field.options %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} get{{ field.name_pascal }}Label(info.{{ field.name }}) {{ '}}' }}</el-descriptions-item>
+{% elif field.type in ['date-year', 'date-month', 'date', 'datetime'] %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} formatDateField(info.{{ field.name }}, '{{ field.type }}') {{ '}}' }}</el-descriptions-item>
+{% else %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} info.{{ field.name }} {{ '}}' }}</el-descriptions-item>
+{% endif %}
+{% endif %}{% endfor %}
+          <el-descriptions-item label="创建时间">{{ '{{' }} formatDateField(info.createTime, 'datetime') {{ '}}' }}</el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+    </el-scrollbar>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import api from '@/service/{{ module.domain }}/{{ group_code }}.js'
+
+const props = defineProps({
+  id: { type: String, required: true }
+})
+
+const emit = defineEmits(['call-back-data'])
+
+const info = ref({})
+
+{% for field in detail_fields %}{% if field.type == 'select' and field.options %}
+const {{ field.name }}Map = {
+{% for opt in field.options %}  '{{ opt.value }}': '{{ opt.label }}',
+{% endfor %}
+}
+const get{{ field.name_pascal }}Label = (val) => {
+  return {{ field.name }}Map[val] || val
+}
+{% endif %}{% endfor %}
+const getDetail = async () => {
+  if (!props.id) return
+  const res = await api.getDetailDetail(props.id)
+  info.value = res || {}
+}
+
+const goBack = () => {
+  emit('call-back-data', 1)
+}
+
+const formatDateField = (value, type) => {
+  if (value === null || value === undefined || value === '') return ''
+  const s = String(value).replace('T', ' ').split('.')[0].split('+')[0].trimEnd()
+  if (type === 'date-year') return s.slice(0, 4)
+  if (type === 'date-month') return s.slice(0, 7)
+  if (type === 'date') return s.slice(0, 10)
+  if (type === 'datetime') return s.slice(0, 19)
+  return value
+}
+
+onMounted(() => {
+  getDetail()
+})
+</script>
+
+<style lang="scss" scoped>
+.container {
+  padding: 20px;
+  background-color: #fff;
+}
+.info-card {
+  margin-bottom: 16px;
+}
+</style>

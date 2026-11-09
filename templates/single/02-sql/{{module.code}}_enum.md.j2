@@ -1,0 +1,54 @@
+# {{ module.code | upper }} 模块枚举定义
+
+> **模块**: {{ module.name }}（{{ module.domain_chinese }}）
+> **用途**: 字典枚举值定义
+
+---
+{% set ns = namespace(count=0) %}
+{% for field in fields %}
+{% if field.type == 'select' and field.options %}
+{% set ns.count = ns.count + 1 %}
+## {{ ns.count }}. {{ field.label }}
+
+**字段**: `biz_{{ module.domain }}_{{ module.code }}.{{ field.column_name }}`
+**字典Key**: `{{ module.domain }}_{{ module.code }}_{{ field.name }}`
+
+| 值 | 描述 | 说明 |
+|:---|:---|:---|
+{% for option in field.options %}
+| {{ option.value }} | {{ option.label }} |  |
+{% endfor %}
+
+---
+{% endif %}
+{% endfor %}
+
+## 使用说明
+
+### 前端使用
+```javascript
+{% for field in fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}
+const {{ field.name }}Options = [
+{% for option in field.options %}
+  { label: "{{ option.label }}", value: {{ option.value }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+];
+{% endif %}
+{% endfor %}
+```
+
+### 后端使用
+```java
+{% for field in fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}枚举
+// 字段类型: Integer，直接比对 code 值
+{% for option in field.options %}
+// {{ option.value }} = {{ option.label }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+```

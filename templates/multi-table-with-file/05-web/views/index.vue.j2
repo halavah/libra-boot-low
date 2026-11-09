@@ -1,0 +1,46 @@
+<template>
+  <div class="{{ group_code }}-container">
+    <!-- 子表切换标签 -->
+    <div class="tab-header">
+{% for st in sub_tables %}
+      <el-button
+        :type="activeTab === {{ loop.index0 + 1 }} ? 'primary' : 'default'"
+        @click="activeTab = {{ loop.index0 + 1 }}"
+      >{{ st.module.name }}</el-button>
+{% endfor %}
+
+      <!-- E2E 测试专用隐藏导航按钮（display:none，不影响生产使用） -->
+{% for st in sub_tables %}
+      <el-button data-testid="nav-{{ group_code }}-{{ st.module.code }}" style="display:none" @click="activeTab = {{ loop.index0 + 1 }}" />
+{% endfor %}
+    </div>
+
+    <!-- 子表内容区域 -->
+{% for st in sub_tables %}
+    <{{ group_code }}-{{ st.module.code }} v-if="activeTab === {{ loop.index0 + 1 }}" />
+{% endfor %}
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+{% for st in sub_tables %}
+import {{ group_code | pascal }}{{ st.module.code_pascal }} from './{{ group_code }}-{{ st.module.code }}.vue'
+{% endfor %}
+
+const activeTab = ref(1)
+</script>
+
+<style lang="scss" scoped>
+.{{ group_code }}-container {
+  padding: 20px;
+  background-color: #fff;
+}
+.tab-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e4e7ed;
+  padding-bottom: 12px;
+}
+</style>

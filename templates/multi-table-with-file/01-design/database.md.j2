@@ -1,0 +1,98 @@
+---
+name: {{ module.code_pascal | upper }} Database Design Standards (Cognitive Optimized)
+description: {{ module.name }}数据库设计（多平级子表+附件模式）。
+---
+
+# {{ module.name }}数据库设计
+
+## 1. 表结构概览
+
+| 表名 (Table) | 说明 (Description) | 备注 |
+| :--- | :--- | :--- |
+{% for sub in sub_tables %}
+| `biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}` | {{ sub.module.name }}主表 | 平级子表 {{ loop.index }} |
+| `biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}_file` | {{ sub.module.name }}附件表 | 1:N 附件 |
+{% endfor %}
+
+## 2. 详细设计
+
+{% for sub in sub_tables %}
+### 2.{{ loop.index }} {{ sub.module.name }}表 (`biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **审计字段**: 包含 `create_dept` (数据权限核心)
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 |
+{% for field in sub.fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 |
+| `create_user` | BIGINT | 20 | Y | 创建人 |
+| `create_time` | DATETIME | | Y | 创建时间 |
+| `update_user` | BIGINT | 20 | N | 更新人 |
+| `update_time` | DATETIME | | N | 更新时间 |
+
+#### 索引设计
+{% for field in sub.fields if field.filterable %}
+{{ loop.index }}.  `idx_{{ field.column_name }}` (`{{ field.column_name }}`)
+
+{% endfor %}
+
+### 2.{{ loop.index + sub_tables | length }} {{ sub.module.name }}附件表 (`biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}_file`)
+
+> 选项A（1:N独立附件表），依据 07-upload 规范
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 |
+| `{{ sub.module.code }}_id` | BIGINT | 20 | Y | 关联{{ sub.module.name }}ID |
+| `file_type` | VARCHAR | 50 | N | 附件类型：{% for ft in sub.file_types %}{{ ft.code }}={{ ft.label }}{% if not loop.last %}, {% endif %}{% endfor %} |
+| `file_url` | VARCHAR | 500 | Y | MinIO文件绝对地址 |
+| `file_name` | VARCHAR | 200 | N | 原始文件名 |
+| `is_deleted` | INT | 1 | Y | 逻辑删除 |
+| `create_dept` | BIGINT | 20 | N | 创建部门 |
+| `create_user` | BIGINT | 20 | N | 创建人 |
+| `create_time` | DATETIME | | N | 创建时间 |
+| `update_user` | BIGINT | 20 | N | 更新人 |
+| `update_time` | DATETIME | | N | 更新时间 |
+
+#### 索引设计
+1.  `idx_{{ sub.module.code }}_id` (`{{ sub.module.code }}_id`) — 外键索引
+
+{% endfor %}
+
+## 3. 表关系图
+
+```
+{{ module.name }}（{{ module.code }}）— 多平级子表 + 各自附件表
+
+{% for sub in sub_tables %}
+├── biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}（{{ sub.module.name }}）
+│     └─── 1:N ──→ biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}_file（附件表）
+│                     外键: {{ sub.module.code }}_id | 索引: idx_{{ sub.module.code }}_id
+{% endfor %}
+```
+
+## 4. 级联删除策略
+
+删除子表记录时，**先删附件，再删主表**（逻辑删除）：
+```sql
+-- 以 {{ sub_tables[0].module.name }} 为例
+UPDATE biz_{{ module.domain }}_{{ module.code }}_{{ sub_tables[0].module.code }}_file SET is_deleted = 1 WHERE {{ sub_tables[0].module.code }}_id = #{id};
+UPDATE biz_{{ module.domain }}_{{ module.code }}_{{ sub_tables[0].module.code }} SET is_deleted = 1 WHERE id = #{id};
+```
+
+## 5. 附件类型枚举
+
+{% for sub in sub_tables %}
+### 5.{{ loop.index }} {{ sub.module.name }}附件类型
+| 值 | 含义 |
+| :--- | :--- |
+{% for ft in sub.file_types %}
+| `{{ ft.code }}` | {{ ft.label }} |
+{% endfor %}
+
+{% endfor %}

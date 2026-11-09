@@ -1,0 +1,46 @@
+-- =====================================================
+-- {{ module.name }} 模块测试数据脚本 (25条全量数据)
+-- =====================================================
+SET NAMES utf8mb4;
+
+TRUNCATE TABLE `biz_{{ module.domain }}_{{ module.code }}_file`;
+TRUNCATE TABLE `biz_{{ module.domain }}_{{ module.code }}`;
+
+-- ----------------------------
+-- 插入主表测试数据 (25条)
+-- 年份分布: 1-9条(2023), 10-18条(2024), 19-25条(2025)
+-- ----------------------------
+INSERT INTO `biz_{{ module.domain }}_{{ module.code }}` (
+  `id`{% for field in fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+({{ 1000000 + i }}, {% for field in fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% elif field.type == 'upload' %}''{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+-- ----------------------------
+-- 插入附件从表测试数据 (6条，挂在前3条主记录下，每条2个附件)
+-- ----------------------------
+{% set ft_count = module.file_types | length %}
+{% if ft_count > 0 %}
+{% set ft0 = module.file_types[0] %}
+{% set ft1 = module.file_types[1 % ft_count] if ft_count > 1 else module.file_types[0] %}
+INSERT INTO `biz_{{ module.domain }}_{{ module.code }}_file` (
+  `id`, `{{ module.code }}_id`, `file_type`, `file_url`, `file_name`,
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+(100000001, 1000001, '{{ ft0.code }}', 'http://localhost:9000/task/{{ module.domain }}/{{ module.code }}/f1_1.pdf', '{{ module.name }}1_{{ ft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(100000002, 1000001, '{{ ft1.code }}', 'http://localhost:9000/task/{{ module.domain }}/{{ module.code }}/f1_2.jpg', '{{ module.name }}1_{{ ft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(100000003, 1000002, '{{ ft0.code }}', 'http://localhost:9000/task/{{ module.domain }}/{{ module.code }}/f2_1.pdf', '{{ module.name }}2_{{ ft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(100000004, 1000002, '{{ ft1.code }}', 'http://localhost:9000/task/{{ module.domain }}/{{ module.code }}/f2_2.jpg', '{{ module.name }}2_{{ ft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(100000005, 1000003, '{{ ft0.code }}', 'http://localhost:9000/task/{{ module.domain }}/{{ module.code }}/f3_1.pdf', '{{ module.name }}3_{{ ft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(100000006, 1000003, '{{ ft1.code }}', 'http://localhost:9000/task/{{ module.domain }}/{{ module.code }}/f3_2.jpg', '{{ module.name }}3_{{ ft1.label }}.jpg', 0, NOW(), 1001, 2001);
+{% else %}
+-- 跳过附件数据插入（file_types 为空）
+{% endif %}
+
+SELECT '✅ {{ module.code_pascal }} 测试数据导入完成（主表25条{% if module.file_types %} + 附件6条{% else %}0条{% endif %})' AS status;

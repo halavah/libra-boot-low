@@ -1,0 +1,275 @@
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  【文档定位】
+    03-http-scripts/test_mock.md — HTTP 接口自动化测试脚本套件使用说明
+
+    本文档是 test_mock.py / test_mock.sh / test_mock.ps1 三个脚本的统一说明入口。
+    面向对象：参与模块开发、联调、测试的所有成员（含不熟悉 Python 的前端同学）。
+
+  【设计思路】
+    1. 文档与脚本同级放置
+       说明文档与可执行脚本放在同一个目录（03-http-scripts/），
+       打开目录即能看到文档，降低找文档的成本。
+
+    2. 平台分栏，快速定位
+       Windows 用 PS1，Linux/Mac 用 SH，两个平台的命令分开列出，
+       读者只需看自己平台的那一栏，无需阅读全文。
+
+    3. 两种调用方式并存
+       - 包装器（sh/ps1）：面向人工操作，提供方框菜单，默认选项 0（全量执行）
+       - 直接调用 Python：面向自动化场景，通过环境变量控制行为
+       文档同时覆盖两种方式，手动操作者和自动化工程师都能找到所需。
+
+    4. 用环境变量控制行为（核心设计决策）
+       test_mock.py 没有 argparse，只认两个环境变量：
+         SKIP_DB_INIT=1   → 跳过数据库初始化（已由外部统一初始化时使用）
+         BEARER_TOKEN=xxx → 注入认证令牌（避免在文件中硬编码敏感信息）
+       这是与 run_mock.sh 参数传递方式的最大区别，文档需要重点说明。
+
+    5. 测试结论三级分层
+       PASS / FAIL / Logic Warning 三级结论的判定规则在文档中明确列出，
+       帮助读者理解测试输出，正确区分"接口挂了"和"业务逻辑有问题"。
+
+    6. 与 run_mock.py 的联动关系
+       test_mock.py 在启动时会自动调用 run_mock.py 0 --yes 重置 DB，
+       这个"隐式依赖"在文档中需要明确说明，避免误解为"只跑接口测试"。
+
+  【与其他文件的关系】
+    test_mock.md   ← 本文档，提供使用说明
+    test_mock.py   ← 核心逻辑：扫描 .http 文件 → 发起真实 HTTP 请求 → 判定结论
+    test_mock.sh   ← Linux/Mac 包装器：环境检查 → 交互菜单 → 环境变量 → 调用 py
+    test_mock.ps1  ← Windows 包装器：环境检查 → 交互菜单 → 环境变量 → 调用 py
+
+    上游数据源：../03-http/*.http（.http 文件定义了全部测试用例）
+    隐式依赖：  ../02-sql-scripts/run_mock.py（启动时自动调用重置 DB）
+    输出日志：  ../05-out/mock_{YYYYMMDD_HHmmss}.txt
+
+    上游调用方：
+      L3 闭环脚本    SKIP_DB_INIT=1 python test_mock.py
+      手动执行        ./test_mock.sh / .\test_mock.ps1
+
+  【注意事项】
+    - 依赖安装：pip install requests
+    - 测试前确保后端服务已启动（默认端口 9072）
+    - 数据库配置位于 ../../../../.claude/.env
+    - 日志文件输出到 ../05-out/ 目录，不存在时自动创建
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+
+# {{ module.code.upper() }} 模块 - HTTP 接口自动化测试
+
+> **用途**: 自动扫描 `03-http/` 目录下的 `.http` 文件，逐条发起真实 HTTP 请求，验证接口响应
+> **数据源**: `../03-http/*.http`
+> **日志输出**: `../05-out/mock_{YYYYMMDD_HHmmss}.txt`
+> **支持平台**: Windows (PS1) · Linux/Mac (SH) · 直接 Python
+
+---
+
+## 快速开始
+
+### Windows
+
+```powershell
+cd 03-http-scripts
+.\test_mock.ps1
+```
+
+### Linux/Mac
+
+```bash
+cd 03-http-scripts
+chmod +x test_mock.sh
+./test_mock.sh
+```
+
+### 直接运行 Python
+
+```bash
+python test_mock.py
+```
+
+---
+
+## 交互菜单
+
+无参数启动包装器（sh/ps1）后，进入方框交互菜单：
+
+```
+╔════════════════════════════════════════╗
+║  SIMPLE 模块 - HTTP接口测试工具         ║
+╠════════════════════════════════════════╣
+║  0. 全量执行 [Default]                 ║
+║     （重置DB + 运行全部接口测试）       ║
+║  1. 仅运行测试（不重置数据库）          ║
+║  2. 仅重置数据库                        ║
+║  b. 退出 (Back)                         ║
+╚════════════════════════════════════════╝
+
+  请选择 (Enter=默认选项0):
+```
+
+| 选项 | 功能 | 内部行为 |
+|------|------|----------|
+| `0`（默认，直接回车） | 全量执行 | `test_mock.py` 内部自动调用 `run_mock.py 0 --yes` 重置 DB，再执行全部接口测试 |
+| `1` | 仅运行测试 | 设置 `SKIP_DB_INIT=1`，跳过 DB 重置，直接执行接口测试 |
+| `2` | 仅重置数据库 | 直接调用 `run_mock.py 0 --yes`，不执行接口测试 |
+| `b` | 退出 / Back | 退出脚本 |
+
+> 💡 **选项 0 是最常用操作**：开发阶段每次改完代码后直接回车，自动完成"重置 DB + 全量测试"。
+
+---
+
+## 自动化模式（环境变量控制）
+
+`test_mock.py` 通过**环境变量**控制行为，不使用命令行参数。
+
+| 环境变量 | 值 | 作用 |
+|---------|-----|------|
+| `SKIP_DB_INIT` | `1` | 跳过数据库初始化（已由外部统一初始化时设置） |
+| `BEARER_TOKEN` | token 字符串 | 注入 HTTP 请求的认证令牌 |
+
+### Linux/Mac 示例
+
+```bash
+# L3 闭环脚本调用（跳过 DB 初始化，只跑接口测试）
+SKIP_DB_INIT=1 python test_mock.py
+
+# 注入认证令牌
+BEARER_TOKEN=your_token python test_mock.py
+
+# 组合使用
+SKIP_DB_INIT=1 BEARER_TOKEN=your_token python test_mock.py
+```
+
+### Windows PowerShell 示例
+
+```powershell
+# L3 闭环脚本调用
+$env:SKIP_DB_INIT = "1"; python test_mock.py
+
+# 注入认证令牌
+$env:BEARER_TOKEN = "your_token"; python test_mock.py
+
+# 用完记得清除，避免污染当前会话
+Remove-Item Env:SKIP_DB_INIT -ErrorAction SilentlyContinue
+Remove-Item Env:BEARER_TOKEN -ErrorAction SilentlyContinue
+```
+
+---
+
+## 与数据库初始化的联动关系
+
+`test_mock.py` 启动时的默认行为：
+
+```
+test_mock.py 启动
+  ↓
+检查 SKIP_DB_INIT 环境变量
+  ├─ 未设置（默认）→ 自动调用 run_mock.py 0 --yes → 重置 DB → 执行接口测试
+  └─ SKIP_DB_INIT=1  → 跳过 DB 重置 → 直接执行接口测试
+```
+
+> ⚠️ **注意**：默认情况下每次运行都会重置数据库（DROP + CREATE TABLE + INSERT）。
+> 如果只想重跑接口测试而不清空数据，请使用 **选项 1** 或设置 `SKIP_DB_INIT=1`。
+
+---
+
+## 测试结论说明
+
+每个接口请求执行后，输出以下三级结论之一：
+
+| 结论 | 触发条件 | 含义 |
+|------|---------|------|
+| ✅ **PASS** | HTTP 状态码 200-399，且业务码为 200 / 0，或 `success=true` | 接口正常，业务逻辑正确 |
+| ❌ **FAIL** | HTTP 状态码 >= 400，或发生网络异常 | 接口异常，需要排查 |
+| ⚠️ **Logic Warning** | HTTP 状态码正常，但业务码非预期值 | 接口通了，但业务逻辑返回错误 |
+
+### 输出示例
+
+```
+==================================================
+Executing File: 01-list.http
+==================================================
+
+Running: [GET] http://127.0.0.1:9072/api/layer/v1/sys-service/{{ module.domain }}/{{ module.code }}/list
+Status: 200
+Response (Snippet): {"code":200,"msg":"成功","data":{...}}...
+✅ PASS
+
+Running: [POST] http://127.0.0.1:9072/api/layer/v1/sys-service/{{ module.domain }}/{{ module.code }}/add
+Status: 200
+Response (Snippet): {"code":200,"msg":"成功","data":1}...
+✅ PASS
+```
+
+---
+
+## 日志文件
+
+每次执行都会在 `../05-out/` 目录生成带时间戳的日志文件：
+
+```
+../05-out/mock_20260312_143000.txt
+```
+
+日志内容与控制台输出完全一致（ANSI 颜色码已自动剥离），可直接用文本编辑器查看。
+
+---
+
+## .http 文件格式说明
+
+`03-http/` 目录下的 `.http` 文件格式：
+
+```http
+@baseUrl = http://127.0.0.1:9072/api/layer/v1/sys-service/{{ module.domain }}/{{ module.code }}
+
+### 1. 查询列表
+GET {{ '{{' }}baseUrl{{ '}}' }}/list?pageNum=1&pageSize=10
+Authorization: Bearer {{ '{{' }}token{{ '}}' }}
+
+### 2. 新增记录
+POST {{ '{{' }}baseUrl{{ '}}' }}/add
+Authorization: Bearer {{ '{{' }}token{{ '}}' }}
+Content-Type: application/json
+
+{
+  "fieldName": "测试值"
+}
+
+### 3. 删除记录
+POST {{ '{{' }}baseUrl{{ '}}' }}/remove
+Authorization: Bearer {{ '{{' }}token{{ '}}' }}
+Content-Type: application/json
+
+{
+  "id": 1
+}
+```
+
+| 语法元素 | 说明 |
+|---------|------|
+| `@key=value` | 变量定义，脚本运行时载入并替换 |
+| `### 名称` | 请求分隔符，`###` 后的文字作为请求名称 |
+| `{{ '{{' }}key{{ '}}' }}` | 变量引用，运行时替换为对应值 |
+| 空行 | 分隔请求头与请求体 |
+
+---
+
+## 依赖安装
+
+```bash
+pip install requests
+```
+
+---
+
+## 常见问题
+
+| 现象 | 原因 | 解决方法 |
+|------|------|----------|
+| `No .http files found` | `03-http/` 目录为空或路径不对 | 确认 `../03-http/` 目录下有 `.http` 文件 |
+| `❌ FAIL: Connection refused` | 后端服务未启动 | 启动后端服务（默认端口 9072） |
+| `错误: 数据库连接失败` | DB 配置错误或 MySQL 未启动 | 检查 `../../../../.claude/.env`，确认 MySQL 已启动 |
+| `No module named 'requests'` | 缺少依赖 | `pip install requests` |
+| ⚠️ `Logic Warning` 大量出现 | 业务逻辑异常或测试数据不匹配 | 查看 `../05-out/` 日志，检查接口返回的 `msg` 字段 |
+| PS1 提示"无法加载文件" | PowerShell 执行策略限制 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |

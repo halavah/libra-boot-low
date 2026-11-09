@@ -1,0 +1,489 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ==============================================================================
+# 【脚本定位】
+#   03-http-scripts/test_mock.py — HTTP 接口自动化测试核心脚本
+#   在整个测试链路中处于"执行层"：
+#     它扫描 03-http/ 目录下的所有 .http 文件，逐条发起真实 HTTP 请求，
+#     并验证响应状态码和业务码，输出 PASS / FAIL / Logic Warning 结论。
+#   是 L3 原子闭环验证的核心驱动脚本。
+#
+# 【设计思路】
+#   1. 零硬编码 / 自动推断
+#      模块名、模块路径通过"向上爬目录"自动推断，脚本放在哪个模块
+#      目录下就服务于哪个模块，无需任何配置文件。
+#      baseUrl 硬编码为 127.0.0.1:9072，修改时全局搜索同步更新。
+#
+#   2. 自动初始化数据库（可跳过）
+#      脚本启动时默认先调用 run_mock.py 0 --yes 完成数据库全量重置，
+#      保证每次测试都从一个已知的干净状态出发，结果可重复。
+#      通过环境变量 SKIP_DB_INIT=1 可跳过此步骤（L3 脚本已统一初始化时使用）。
+#
+#   3. 以 .http 文件为唯一测试数据源
+#      .http 文件同时服务于开发阶段的手动调试和自动化测试，
+#      一套定义两种用途，不需要维护额外的测试用例文件。
+#
+#   4. 变量替换机制
+#      解析 .http 文件中的 @key=value 变量定义，
+#      用 {{ '{{' }}key{{ '}}' }} 语法在 URL / Header / Body 中引用，
+#      运行时动态替换为实际值，保持 .http 文件的可读性。
+#
+#   5. Session 复用 + 认证令牌注入
+#      使用 requests.Session 保持 Cookie 状态，
+#      支持通过环境变量 BEARER_TOKEN 注入认证令牌，
+#      避免在文件中硬编码敏感信息。
+#
+#   6. 日志双写（控制台 + 文件）
+#      通过 Logger 类同时输出到终端和 ../05-out/mock_{timestamp}.txt，
+#      终端输出保留 ANSI 颜色码，文件输出剥离颜色码保证可读性，
+#      日志文件带时间戳避免覆盖，方便事后审查。
+#
+#   7. 三级结论判定
+#      - ✅ PASS：HTTP 状态码 200-399
+#      - ❌ FAIL：HTTP 状态码 >= 400 或请求异常
+#      - ⚠️ Logic Warning：状态码正常但业务码非 200/0 或 success 非 true
+#      Logic Warning 不阻断后续请求执行，但会在日志中留下记录。
+#
+#   8. 文件上传支持
+#      解析 .http 文件中的 `< ./path/to/file` 语法，
+#      配合 multipart/form-data Content-Type 构造文件上传请求，
+#      覆盖带附件的接口测试场景。
+#
+# 【执行流程】
+#   启动
+#     ↓ 初始化日志（双写 Logger）
+#     ↓ 自动推断模块名 / 模块路径
+#     ↓ 检查 SKIP_DB_INIT 环境变量
+#       ├─ SKIP_DB_INIT != 1 → 调用 run_mock.py 0 --yes 重置 DB
+#       └─ SKIP_DB_INIT == 1 → 跳过 DB 初始化
+#     ↓ 读取 BEARER_TOKEN 环境变量（可选）
+#     ↓ 初始化 HttpRunner（模块变量 + Session）
+#     ↓ 遍历 03-http/ 下所有 .http 文件（按文件名排序）
+#     ↓   每个文件 → parse_and_run → 按 ### 分割请求块 → 逐块执行
+#     ↓     每个请求块 → 变量替换 → 构造请求 → 发起请求 → 判定结论
+#     ↓ 输出汇总日志
+#
+# 【调用关系】
+#   ┌─────────────────────────────────────────────────────────┐
+#   │  手动执行          python test_mock.py                  │
+#   │  通过包装器执行    ./test_mock.sh  /  .\test_mock.ps1   │
+#   │  L3 闭环脚本调用   SKIP_DB_INIT=1 python test_mock.py  │
+#   └─────────────────────────────────────────────────────────┘
+#   本脚本内部调用：
+#     └─ run_mock.py（SKIP_DB_INIT != 1 时，subprocess 方式）
+#
+# 【环境变量】
+#   SKIP_DB_INIT=1   跳过数据库初始化（L3 脚本统一初始化后设置此变量）
+#   BEARER_TOKEN=xxx 设置 HTTP 请求的认证令牌
+#
+# 【注意事项】
+#   - 依赖安装：pip install requests
+#   - baseUrl 硬编码为 127.0.0.1:9072，如需修改请全局搜索同步更新
+#   - 测试前确保后端服务已启动（默认端口 9072）
+#   - 日志文件输出到 ../05-out/ 目录，不存在时自动创建
+# ==============================================================================
+# 硬编码说明（修改时请搜索并同步更新）:
+#   - baseUrl: 127.0.0.1:9072 (接口服务地址，出现在测试逻辑中)
+# ==============================================================================
+"""
+HTTP 接口自动化测试脚本 (HTTP API Test Automation)
+
+【作用】
+自动扫描并执行模块下所有 .http 文件中的接口测试。
+支持自动数据库初始化，确保测试环境的一致性。
+
+【执行模式】
+1. 手动执行（默认会自动初始化数据库）:
+   python test_mock.py
+   或
+   powershell -File test_mock.ps1
+
+   - 自动调用 run_mock.py 进行数据库重置（模式 0 --yes）
+   - 执行所有 HTTP 测试
+   - 适用于独立手动测试场景
+
+2. L3 脚本调用（跳过数据库初始化）:
+   SKIP_DB_INIT=1 python test_mock.py
+   或
+   $env:SKIP_DB_INIT="1"; powershell -File test_mock.ps1
+
+   - 检测到环境变量，跳过自动数据库初始化
+   - 仅执行 HTTP 测试
+   - 适用于自动化闭环场景（L3 脚本已经初始化过数据库）
+
+【环境变量】
+- SKIP_DB_INIT: 设置为 "1" 时跳过自动数据库初始化
+- BEARER_TOKEN: 可选，用于设置 HTTP 请求的认证令牌（Authorization: Bearer {{ '{{' }}token{{ '}}' }}）
+
+【调用关系】
+- 被 test_mock.ps1/sh 包装器调用
+- 被 L3 原子闭环脚本调用（设置 SKIP_DB_INIT=1）
+- 自动调用 run_mock.py（如果 SKIP_DB_INIT != 1 且 run_mock.py 存在）
+- 可手动独立运行
+
+【自动检测逻辑】
+- 模块名称: 通过脚本所在目录名自动推断（如 user, order）
+- HTTP 文件: 自动扫描 ../03-http/*.http
+- 数据库脚本: 自动定位 ../02-sql-scripts/run_mock.py
+
+【测试结果】
+- ✅ PASS: HTTP 状态码 200-299
+- ❌ FAIL: HTTP 状态码 >= 400 或请求异常
+- ⚠️ Logic Warning: 状态码正常但响应中包含 "失败" 等关键字
+
+【示例】
+# 手动测试（自动初始化数据库）
+python test_mock.py
+
+# 跳过数据库初始化
+SKIP_DB_INIT=1 python test_mock.py
+
+# 设置认证令牌
+BEARER_TOKEN=your_token python test_mock.py
+"""
+
+import datetime
+import json
+import os
+import re
+import sys
+
+import requests
+
+
+class Logger(object):
+    # 匹配 ANSI 转义码（颜色/光标控制），写文件时去除，避免乱码
+    _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        # 写入文件时去掉 ANSI 控制码，保留纯文本
+        self.log.write(self._ANSI_RE.sub("", message))
+        self.log.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+
+class HttpRunner:
+    def __init__(self, token=None):
+        # ... (rest of HttpRunner class remains unchanged) ...
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.module_dir = os.path.dirname(self.script_dir)
+        self.module_name = self._detect_module_name()
+        self.module_path = self._detect_module_path()
+
+        self.variables = {
+            "baseUrl": f"http://127.0.0.1:9072/api/layer/v1/sys-service/{self.module_path}",
+            "token": token if token else "your_token_here",
+        }
+        self.session = requests.Session()
+        # 禁用系统代理（Surge 等），确保 localhost/127.0.0.1 直连
+        self.session.trust_env = False
+    def _detect_module_name(self):
+        """自动检测模块名称（如 user）"""
+        return os.path.basename(self.module_dir)
+
+    def _detect_module_path(self):
+        """自动检测模块路径（如 sys/user）"""
+        parent_dir = os.path.dirname(self.module_dir)
+        parent_name = os.path.basename(parent_dir)
+        # 去掉前缀数字，如 "01.sys" -> "sys"
+        if "." in parent_name:
+            parent_name = parent_name.split(".", 1)[1]
+        return f"{parent_name}/{self.module_name}"
+
+    def parse_and_run(self, file_path):
+        print(f"\n{'=' * 50}")
+        print(f"Executing File: {os.path.basename(file_path)}")
+        print(f"{'=' * 50}")
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Split by separator ###
+        blocks = re.split(r"^###.*$", content, flags=re.MULTILINE)
+
+        # Pre-process global variables (lines starting with @)
+        self._parse_global_variables(content)
+
+        for i, block in enumerate(blocks):
+            if not block.strip():
+                continue
+
+            # Extract request details
+            self._process_request_block(block.strip())
+
+    def _parse_global_variables(self, content):
+        # Look for @key = value
+        matches = re.findall(r"^@(\w+)\s*=\s*(.*)$", content, flags=re.MULTILINE)
+        for key, value in matches:
+            self.variables[key] = value.strip()
+            # print(f"Variable set: {key} = {value.strip()}")
+
+    def _replace_variables(self, text):
+        # Replace {{ '{{' }}key{{ '}}' }} with value
+        for key, value in self.variables.items():
+            text = text.replace(f"{{ '{{' }}{{ '{{' }}{key}{{ '}}' }}{{ '}}' }}", value)
+        return text
+
+    def _process_request_block(self, block):
+        lines = block.splitlines()
+        method = None
+        url = None
+        headers = {}
+        body_lines = []
+        is_body = False
+        file_path = None
+        file_field_name = "file"  # Default assumption
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if method and url:  # Empty line marks start of body
+                    is_body = True
+                continue
+
+            # Commentary or variable definition inside block
+            if line.startswith("#") or line.startswith("@"):
+                continue
+
+            if not method:
+                # Parse Request Line: GET http://...
+                parts = line.split(" ", 1)
+                if len(parts) == 2 and parts[0] in [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE",
+                    "PATCH",
+                ]:
+                    method = parts[0]
+                    url = self._replace_variables(parts[1])
+                    continue
+
+            if not is_body:
+                # Parse Headers: Content-Type: application/json
+                if ":" in line:
+                    key, val = line.split(":", 1)
+                    key = key.strip()
+                    val = self._replace_variables(val.strip())
+                    headers[key] = val
+                else:
+                    # If it doesn't look like a header but we have method, assume body starts (edge case)
+                    if method:
+                        is_body = True
+                        if "<" in line and line.strip().startswith(
+                            "<"
+                        ):  # Check for file input syntax e.g. < ./file.xlsx
+                            # This might be the start of body with file reference
+                            pass
+                        else:
+                            body_lines.append(line)
+            else:
+                # Body processing
+                if line.startswith("<"):
+                    # File inclusion syntax: < ./path/to/file
+                    parts = line.split(" ", 1)
+                    if len(parts) >= 2:
+                        raw_path = parts[1].strip()
+                        file_path = raw_path
+                else:
+                    body_lines.append(line)
+
+        if method and url:
+            # Special handling for multipart/form-data parsing (simplified)
+            # If headers mention multipart but body has boundaries, we might want to ignore manual body construction
+            # and verify if we found a file path.
+
+            # Check for file upload via < syntax without multipart header (some http clients do this)
+            # Or strict multipart header check
+
+            upload_files = None
+            data_body = None
+
+            content_type = headers.get("Content-Type", "")
+            if "multipart/form-data" in content_type:
+                # If we detected a file path using < syntax
+                if file_path:
+                    # Resolve absolute path relative to the .http file location?
+                    # For now assuming relative to CWD or handled by caller if absolute.
+                    # Verify file exists
+                    if os.path.exists(file_path):
+                        # Should attempt to parse field name from content-disposition in body_lines if possible
+                        # But for simplicity, let's look for 'name="file"' in body lines if they exist
+                        for b_line in body_lines:
+                            if 'name="' in b_line:
+                                # Simple regex or find
+                                match = re.search(r'name="([^"]+)"', b_line)
+                                if match:
+                                    file_field_name = match.group(1)
+
+                        try:
+                            f = open(file_path, "rb")
+                            upload_files = {
+                                file_field_name: (os.path.basename(file_path), f)
+                            }
+                            # Remove Content-Type header to let requests set boundary
+                            headers.pop("Content-Type", None)
+                        except Exception as e:
+                            print(f"❌ Error opening file {file_path}: {e}")
+                    else:
+                        print(f"❌ File not found: {file_path}")
+
+            if not upload_files:
+                data_body = "\n".join(body_lines)
+
+            self._execute_request(method, url, headers, data_body, upload_files)
+
+    def _execute_request(self, method, url, headers, body, files=None):
+        print(f"\nRunning: [{method}] {url}")
+
+        json_body = None
+        data = None
+
+        if body and not files:
+            body = self._replace_variables(body)
+            # Don't try to parse multipart boundaries as JSON
+            if "multipart/form-data" not in headers.get("Content-Type", ""):
+                try:
+                    json_body = json.loads(body)
+                except json.JSONDecodeError:
+                    data = body
+            else:
+                data = body  # Send raw if multipart but no file object (unlikely in this simple runner)
+
+        try:
+            response = self.session.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json_body,
+                data=data,
+                files=files,
+            )
+
+            if files:
+                # Close the file if we opened one
+                for k, v in files.items():
+                    if hasattr(v[1], "close"):
+                        v[1].close()
+
+            print(f"Status: {response.status_code}")
+            if response.status_code >= 400:
+                print(f"Response: {response.text[:500]}")  # Show error snippet
+                print("❌ FAIL")
+            else:
+                try:
+                    res_json = response.json()
+                    print(
+                        f"Response (Snippet): {json.dumps(res_json, ensure_ascii=False)[:200]}..."
+                    )
+                    if (
+                        res_json.get("code") == 200
+                        or res_json.get("code") == 0
+                        or res_json.get("success") == True
+                    ):
+                        print("✅ PASS")
+                    else:
+                        print(f"⚠️  Logic Warning: {res_json.get('msg', 'Unknown')}")
+                except:
+                    ct = response.headers.get("Content-Type", "")
+                    if any(t in ct for t in ("text/", "/json", "/xml", "/html")):
+                        print(f"Response: {response.text[:200]}")
+                    else:
+                        print(f"Response: [Binary {len(response.content)} bytes, {ct}]")
+                    print("✅ PASS (Non-JSON)")
+
+        except Exception as e:
+            print(f"❌ ERROR: {e}")
+
+
+if __name__ == "__main__":
+    # Setup Logging
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    log_dir = os.path.abspath(os.path.join(script_dir, "../05-out"))
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"mock_{timestamp}.txt")
+
+    # Redirect stdout to both terminal and file
+    sys.stdout = Logger(log_file)
+
+    print("通用 HTTP 接口测试工具")
+    print(f"Log File: {log_file}")
+
+    # Auto-detect module info
+    module_dir = os.path.dirname(script_dir)
+    module_name = os.path.basename(module_dir).upper()
+
+    print(f"检测到模块: {module_name}")
+
+    # ============================================================
+    # 自动数据库初始化 (Auto Database Initialization)
+    # ============================================================
+    # 检查环境变量 SKIP_DB_INIT (L3 脚本会设置此变量以避免重复初始化)
+    skip_db_init = os.environ.get("SKIP_DB_INIT", "0") == "1"
+
+    if not skip_db_init:
+        # 尝试定位并执行 run_mock.py
+        sql_scripts_dir = os.path.join(module_dir, "02-sql-scripts")
+        run_mock_script = os.path.join(sql_scripts_dir, "run_mock.py")
+
+        if os.path.exists(run_mock_script):
+            print("\n🔄 Auto-initializing database...")
+            import subprocess
+
+            try:
+                result = subprocess.run(
+                    [sys.executable, run_mock_script, "0", "--yes"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=60,  # 60秒超时
+                )
+
+                # Also capture DB Init output to log if possible, but subprocess captures it separately.
+                # Let's print it so it goes to log.
+                if result.stdout:
+                    print(result.stdout)
+
+                if result.returncode == 0:
+                    print("✅ Database initialized successfully")
+                else:
+                    print(f"⚠️ Database init failed (exit code {result.returncode})")
+                    if result.stderr:
+                        print(f"   Error: {result.stderr[:200]}")
+            except subprocess.TimeoutExpired:
+                print("⚠️ Database init timeout (60s)")
+            except Exception as e:
+                print(f"⚠️ Database init error: {e}")
+        else:
+            print(f"⚠️ run_mock.py not found at {run_mock_script}, skipping DB init")
+    else:
+        print("⏩ Skipping DB init (SKIP_DB_INIT=1)")
+
+    print("\n🧪 Starting HTTP Tests...")
+    print("=" * 50)
+
+    token = os.environ.get("BEARER_TOKEN", "").strip()
+    runner = HttpRunner(token if token else None)
+
+    # Get parent directory (03-http)
+    http_dir = os.path.join(module_dir, "03-http")
+
+    files = sorted([f for f in os.listdir(http_dir) if f.endswith(".http")])
+
+    if not files:
+        print(f"No .http files found in {http_dir}")
+        sys.exit(0)
+
+    for file in files:
+        file_path = os.path.join(http_dir, file)
+        runner.parse_and_run(file_path)

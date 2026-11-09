@@ -1,0 +1,151 @@
+---
+name: {{ module.code_pascal | upper }} API Design Standards (Cognitive Optimized)
+description: {{ module.name }} API 设计（主子表+附件模式）。
+---
+
+# {{ module.name }} API 设计
+
+## 1. 基础路径 (Base Path)
+
+### 1.1 主表接口
+*   **Controller**: `{{ module.domain_pascal }}{{ module.master.code_pascal }}Controller`
+*   **Path**: `/{{ module.domain }}/{{ module.code }}/{{ module.master.code }}`
+
+### 1.2 子表接口（含附件）
+*   **Controller**: `{{ module.domain_pascal }}{{ module.detail.code_pascal }}Controller`
+*   **Path**: `/{{ module.domain }}/{{ module.code }}/{{ module.detail.code }}`
+
+## 2. 接口列表
+
+### 2.1 主表接口（{{ module.master.name }}）
+
+| 接口描述 | 方法 | URL | 参数 | 返回 | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 分页查询 | GET | `/list` | `{{ module.master.code_pascal }}Param` | `IPage<{{ module.master.code_pascal }}VO>` | |
+| 详情查询 | GET | `/detail` | `id` | `{{ module.master.code_pascal }}VO` | 含子表列表 |
+| 新增 | POST | `/add` | `{{ module.master.code_pascal }}Param` | `Boolean` | |
+| 修改 | POST | `/update` | `{{ module.master.code_pascal }}Param` | `Boolean` | |
+| 删除 | POST | `/remove` | `ids` (List) | `Boolean` | 逻辑删除（级联子表及附件） |
+| 彻底删除 | POST | `/physical-remove` | `ids` (List) | `Boolean` | 物理删除（级联子表及附件） |
+{% if module.has_batch_operations %}
+| 批量删除 | POST | `/batch-delete` | `ids` (List) | `Boolean` | 批量逻辑删除 |
+| 批量彻底删除 | POST | `/batch-physical-delete` | `ids` (List) | `Boolean` | 批量物理删除 |
+| 批量更新 | POST | `/batch-update` | `BatchUpdateParam` | `Boolean` | 批量修改指定字段 |
+{% endif %}
+| 导出 | GET | `/export` | `{{ module.master.code_pascal }}Param` | `Blob` | Excel导出 |
+
+### 2.2 子表接口（{{ module.detail.name }}，含附件）
+
+| 接口描述 | 方法 | URL | 参数 | 返回 | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 分页查询 | GET | `/list` | `{{ module.detail.code_pascal }}Param` | `IPage<{{ module.detail.code_pascal }}VO>` | 按{{ module.master.name }}ID过滤，响应含 fileList |
+| 详情查询 | GET | `/detail` | `id` | `{{ module.detail.code_pascal }}VO` | 响应含 fileList |
+| 新增 | POST | `/add` | `{{ module.detail.code_pascal }}Param` | `Boolean` | |
+| 修改 | POST | `/update` | `{{ module.detail.code_pascal }}Param` | `Boolean` | |
+| 删除 | POST | `/remove` | `ids` (List) | `Boolean` | 逻辑删除（级联附件） |
+| 彻底删除 | POST | `/physical-remove` | `ids` (List) | `Boolean` | 物理删除（级联附件，不可恢复） |
+{% if module.has_batch_operations %}
+| 批量删除 | POST | `/batch-delete` | `ids` (List) | `Boolean` | 批量逻辑删除 |
+| 批量彻底删除 | POST | `/batch-physical-delete` | `ids` (List) | `Boolean` | 批量物理删除 |
+| 批量更新 | POST | `/batch-update` | `BatchUpdateParam` | `Boolean` | 批量修改指定字段 |
+{% endif %}
+| 导出 | GET | `/export` | `{{ module.detail.code_pascal }}Param` | `Blob` | Excel导出 |
+| 上传附件 | POST | `/upload` | `file` (multipart) | `Map` | 返回 url/fileName |
+| 附件列表 | GET | `/file/list` | `{{ module.detail.code }}Id` | `List<{{ module.detail.code_pascal }}FileVO>` | |
+| 删除附件 | POST | `/file/remove` | `ids` (List) | `Boolean` | |
+
+## 3. 参数定义
+
+### 3.1 主表参数 (`{{ module.master.code_pascal }}Param`)
+```java
+@Data
+@ApiModel("{{ module.master.name }}参数")
+public class {{ module.master.code_pascal }}Param {
+    private Long id;
+{% for field in master_fields if not field.generated %}
+{% if field.required %}
+    @NotNull(message = "{{ field.label }}不能为空")
+{% endif %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+    /** 子表列表 */
+    private List<{{ module.detail.code_pascal }}Param> {{ module.detail.code }}List;
+}
+```
+
+### 3.2 子表参数 (`{{ module.detail.code_pascal }}Param`)
+```java
+@Data
+@ApiModel("{{ module.detail.name }}参数")
+public class {{ module.detail.code_pascal }}Param {
+    private Long id;
+    @NotNull(message = "关联ID不能为空")
+    private Long {{ module.detail.master_fk }};
+{% for field in detail_fields if not field.generated %}
+{% if field.required %}
+    @NotNull(message = "{{ field.label }}不能为空")
+{% endif %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+    /** 附件列表 */
+    private List<{{ module.detail.code_pascal }}FileParam> fileList;
+}
+```
+
+### 3.3 附件参数 (`{{ module.detail.code_pascal }}FileParam`)
+```java
+@Data
+@ApiModel("{{ module.detail.name }}附件参数")
+public class {{ module.detail.code_pascal }}FileParam {
+    private Long id;
+    private String fileType;
+    private String fileUrl;
+    private String fileName;
+}
+```
+
+## 4. 返回对象
+
+### 4.1 主表视图对象 (`{{ module.master.code_pascal }}VO`)
+```java
+@Data
+public class {{ module.master.code_pascal }}VO {
+{% for field in master_fields %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+    /** 子表列表 */
+    private List<{{ module.detail.code_pascal }}VO> {{ module.detail.code }}List;
+}
+```
+
+### 4.2 子表视图对象 (`{{ module.detail.code_pascal }}VO`)
+```java
+@Data
+public class {{ module.detail.code_pascal }}VO {
+{% for field in detail_fields %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+    /** 附件列表 */
+    private List<{{ module.detail.code_pascal }}FileVO> fileList;
+}
+```
+
+### 4.3 附件视图对象 (`{{ module.detail.code_pascal }}FileVO`)
+```java
+@Data
+public class {{ module.detail.code_pascal }}FileVO {
+    private Long id;
+    private String fileType;
+    private String fileUrl;
+    private String fileName;
+    private LocalDateTime createTime;
+}
+```
+
+## 5. 附件类型定义
+
+| Code | 含义 |
+| :--- | :--- |
+{% for ft in module.detail.file_types %}
+| `{{ ft.code }}` | {{ ft.label }} |
+{% endfor %}

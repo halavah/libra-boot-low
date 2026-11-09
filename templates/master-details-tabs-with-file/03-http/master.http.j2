@@ -1,0 +1,201 @@
+{% set lb = '{{' %}
+{% set rb = '}}' %}
+# 硬编码说明: master_url 中的 localhost:9072 为本地开发服务地址，按需修改
+# 主表（{{ master_module.name }}）接口 — CRUD + 导出{{ ' + 附件管理（可选）' if has_master_file else '（无附件）' }}
+@master_url = http://localhost:9072{{ master_module.api_path }}
+@test_master_id = 1000001
+{{ '@test_file_id = 310000001' if has_master_file else '' }}
+
+### ============================================================
+### 1. 分页查询（基础）
+### ============================================================
+GET {{ lb }}master_url{{ rb }}/list?current=1&size=10
+Content-Type: application/json
+
+### 2. 分页查询（带条件）
+{% set list_params = ['current=1', 'size=10'] %}
+{% for field in master_fields %}
+{% if field.filterable %}
+{% if field.type == 'input' or field.type == 'textarea' %}
+{% set _ = list_params.append(field.name + '=' + field.label + '1') %}
+{% elif field.type == 'select' and field.options %}
+{% set _ = list_params.append(field.name + '=' + (field.options[0].value | string)) %}
+{% elif field.type == 'date-year' %}
+{% set _ = list_params.append(field.name + '=2025') %}
+{% elif field.type == 'date-month' %}
+{% set _ = list_params.append(field.name + '=2025-01') %}
+{% elif field.type == 'number' %}
+{% set _ = list_params.append(field.name + '=10') %}
+{% elif field.type == 'date' or field.type == 'datetime' %}
+{% set _ = list_params.append(field.name + 'Begin=2025-01-01') %}
+{% set _ = list_params.append(field.name + 'End=2025-12-31') %}
+{% endif %}
+{% endif %}
+{% endfor %}
+GET {{ lb }}master_url{{ rb }}/list?{{ list_params | join('&') }}
+Content-Type: application/json
+
+### ============================================================
+### 3. 查询详情
+### ============================================================
+GET {{ lb }}master_url{{ rb }}/detail?id={{ lb }}test_master_id{{ rb }}
+Content-Type: application/json
+
+### ============================================================
+### 4. 新增
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/add
+Content-Type: application/json
+
+{
+{% for field in master_fields %}
+{% if field.type == 'input' or field.type == 'textarea' %}
+    "{{ field.name }}": "{{ field.label }}测试",
+{% elif field.type == 'select' and field.options %}
+    "{{ field.name }}": {{ field.options[0].value }},
+{% elif field.type == 'date-year' %}
+    "{{ field.name }}": 2025,
+{% elif field.type == 'date-month' %}
+    "{{ field.name }}": "2025-06",
+{% elif field.type == 'number' %}
+    "{{ field.name }}": 100,
+{% elif field.type == 'decimal' %}
+    "{{ field.name }}": 99.99,
+{% elif field.type == 'date' %}
+    "{{ field.name }}": "2025-06-01",
+{% elif field.type == 'datetime' %}
+    "{{ field.name }}": "2025-06-01 10:00:00",
+{% else %}
+    "{{ field.name }}": null,
+{% endif %}
+{% endfor %}
+{{ '    "fileList": [],' if has_master_file else '' }}
+    "_comment": "{{ master_module.name }}新增"
+}
+
+### ============================================================
+### 5. 修改
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/update
+Content-Type: application/json
+
+{
+    "id": "{{ lb }}test_master_id{{ rb }}",
+{% for field in master_fields %}
+{% if field.type == 'input' or field.type == 'textarea' %}
+    "{{ field.name }}": "{{ field.label }}已修改",
+{% elif field.type == 'select' and field.options %}
+    "{{ field.name }}": {{ field.options[0].value }},
+{% elif field.type == 'date-year' %}
+    "{{ field.name }}": 2025,
+{% elif field.type == 'date-month' %}
+    "{{ field.name }}": "2025-09",
+{% elif field.type == 'number' %}
+    "{{ field.name }}": 200,
+{% elif field.type == 'decimal' %}
+    "{{ field.name }}": 88.88,
+{% elif field.type == 'date' %}
+    "{{ field.name }}": "2025-09-01",
+{% elif field.type == 'datetime' %}
+    "{{ field.name }}": "2025-09-01 14:00:00",
+{% else %}
+    "{{ field.name }}": null,
+{% endif %}
+{% endfor %}
+{{ '    "fileList": [],' if has_master_file else '' }}
+    "_comment": "{{ master_module.name }}修改"
+}
+
+### ============================================================
+### 6. 删除
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/remove
+Content-Type: application/json
+
+["{{ lb }}test_master_id{{ rb }}"]
+
+### ============================================================
+### 7. 导出
+### ============================================================
+{% set export_params = [] %}
+{% for field in master_fields %}
+{% if field.filterable %}
+{% if field.type == 'input' or field.type == 'textarea' %}
+{% set _ = export_params.append(field.name + '=' + field.label + '1') %}
+{% elif field.type == 'select' and field.options %}
+{% set _ = export_params.append(field.name + '=' + (field.options[0].value | string)) %}
+{% elif field.type == 'date-year' %}
+{% set _ = export_params.append(field.name + '=2025') %}
+{% elif field.type == 'date-month' %}
+{% set _ = export_params.append(field.name + '=2025-01') %}
+{% endif %}
+{% endif %}
+{% endfor %}
+GET {{ lb }}master_url{{ rb }}/export{{ ('?' + (export_params | join('&'))) if export_params else '' }}
+Content-Type: application/json
+
+{% if has_master_file %}
+### ============================================================
+### 8. 上传附件
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/upload
+Content-Type: multipart/form-data
+
+< ../03-http-scripts/test_{{ master_module.code }}.txt
+
+### ============================================================
+### 9. 附件列表
+### ============================================================
+GET {{ lb }}master_url{{ rb }}/file/list?{{ master_module.code }}Id={{ lb }}test_master_id{{ rb }}
+Content-Type: application/json
+
+### ============================================================
+### 10. 删除附件
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/file/remove
+Content-Type: application/json
+
+["{{ lb }}test_file_id{{ rb }}"]
+
+{% endif %}
+### ============================================================
+### {{ 11 if has_master_file else 8 }}. 彻底删除（物理删除，级联子表和附件）
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/physical-remove
+Content-Type: application/json
+
+["{{ lb }}test_master_id{{ rb }}"]
+
+{% if module.has_batch_operations %}
+### ============================================================
+### {{ 12 if has_master_file else 9 }}. 批量删除（逻辑删除）
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/batch-delete
+Content-Type: application/json
+
+["{{ lb }}test_master_id{{ rb }}", "{{ lb }}test_master_id{{ rb }}"]
+
+### ============================================================
+### {{ 13 if has_master_file else 10 }}. 批量彻底删除（物理删除）
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/batch-physical-delete
+Content-Type: application/json
+
+["{{ lb }}test_master_id{{ rb }}", "{{ lb }}test_master_id{{ rb }}"]
+
+### ============================================================
+### {{ 14 if has_master_file else 11 }}. 批量更新
+### ============================================================
+POST {{ lb }}master_url{{ rb }}/batch-update
+Content-Type: application/json
+
+{
+    "ids": ["{{ lb }}test_master_id{{ rb }}"],
+    "data": {
+{% for f in master_module.batch_operations["update"]["fields"] %}
+    "{{ f.name }}": {% if f.type == 'select' %}1{% elif f.type == 'date' %}"2025-01-01"{% else %}"示例值"{% endif %}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+    }
+}
+{% endif %}

@@ -1,0 +1,23 @@
+-- =====================================================
+-- {{ module.name }} 模块测试数据脚本 (25条全量数据)
+-- =====================================================
+SET NAMES utf8mb4;
+
+TRUNCATE TABLE `biz_{{ module.domain }}_{{ module.code }}`;
+
+-- ----------------------------
+-- 插入主表测试数据 (25条)
+-- 年份分布: 1-9条(2023), 10-18条(2024), 19-25条(2025)
+-- ----------------------------
+INSERT INTO `biz_{{ module.domain }}_{{ module.code }}` (
+  `id`{% for field in fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+({{ 1000000 + i }}, {% for field in fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% elif field.type == 'upload' %}''{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+SELECT '✅ {{ module.code_pascal }} 测试数据导入完成（25条）' AS status;

@@ -1,0 +1,97 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * {{ module.name }} PO
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@TableName("{{ module.table_name }}")
+public class Biz{{ module.domain_pascal }}{{ module.code_pascal }} {
+
+    /**
+     * 主键ID
+     */
+    @TableId(type = IdType.ASSIGN_ID)
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long id;
+
+{% for field in fields %}
+    /**
+     * {{ field.label }}
+{% if field.required %}（必填）{% endif %}
+     */
+    private {{ field.java_type }} {{ field.name }};
+
+{% endfor %}
+{%- set existing_fields = fields | map(attribute='name') | list %}
+{% if module.status_toggles %}
+{% for toggle in module.status_toggles %}
+{% if toggle.field not in existing_fields %}
+    /**
+     * {{ toggle.label }}
+     */
+    private Integer {{ toggle.field }};
+
+{% endif %}
+{% endfor %}
+{% endif %}
+    /**
+     * {{ module.master_fk_label | default('关联主表ID') }}
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long {{ module.master_fk }};
+
+{%- if module.master_name_field is defined and module.master_name_field %}
+    /**
+     * {{ module.master_name_label | default('主表名称') }}
+     */
+    @TableField(exist = false)
+    private String {{ module.master_name_field }};
+
+{%- endif %}
+    /**
+     * 创建部门（数据权限）
+     */
+    private Long createDept;
+
+    /**
+     * 创建时间
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * 创建人
+     */
+    private Long createUser;
+
+    /**
+     * 更新时间
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * 更新人
+     */
+    private Long updateUser;
+
+    /**
+     * 逻辑删除：0=正常，1=已删除
+     */
+    @TableLogic
+    private Integer isDeleted;
+}

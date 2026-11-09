@@ -1,0 +1,84 @@
+/**
+ * {{ group_name }} 组合服务 API
+ * 包含所有子表的接口方法，统一通过 named exports 和 default export 暴露
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+
+import http from '@/common/utils/http'
+
+const SVC = '/layer/v1/sys-service'
+{% for st in sub_tables %}
+
+// ================= {{ st.module.name }}（{{ st.module.code }}） =================
+
+export const get{{ st.module.code_pascal }}List = (params) => {
+  return http.get(`${SVC}{{ st.module.api_path }}/list`, params)
+}
+
+export const get{{ st.module.code_pascal }}Detail = (params) => {
+  return http.get(`${SVC}{{ st.module.api_path }}/detail`, params)
+}
+
+export const add{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/add`, data)
+}
+
+export const update{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/update`, data)
+}
+
+export const remove{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/remove`, data)
+}
+
+export const physicalRemove{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/physical-remove`, data)
+}
+
+export const export{{ st.module.code_pascal }}List = (params) => {
+  return http.export(`${SVC}{{ st.module.api_path }}/export`, params)
+}
+{% if st.module.has_status_toggles %}
+
+export const toggle{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/toggle`, data)
+}
+{% endif %}
+{% if st.module.has_batch_operations %}
+
+export const batchDelete{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/batch-delete`, data)
+}
+
+export const batchPhysicalDelete{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/batch-physical-delete`, data)
+}
+
+export const batchUpdate{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/batch-update`, data)
+}
+
+export const batchToggle{{ st.module.code_pascal }} = (data) => {
+  return http.post(`${SVC}{{ st.module.api_path }}/batch-toggle`, data)
+}
+{% endif %}
+{% endfor %}
+
+export default {
+{% for st in sub_tables %}
+  get{{ st.module.code_pascal }}List,
+  get{{ st.module.code_pascal }}Detail,
+  add{{ st.module.code_pascal }},
+  update{{ st.module.code_pascal }},
+  remove{{ st.module.code_pascal }},
+  physicalRemove{{ st.module.code_pascal }},
+  export{{ st.module.code_pascal }}List,{% if st.module.has_status_toggles %}
+  toggle{{ st.module.code_pascal }},{% endif %}{% if st.module.has_batch_operations %}
+  batchDelete{{ st.module.code_pascal }},
+  batchPhysicalDelete{{ st.module.code_pascal }},
+  batchUpdate{{ st.module.code_pascal }},
+  batchToggle{{ st.module.code_pascal }},{% endif %}
+{% endfor %}
+}

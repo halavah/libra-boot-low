@@ -1,0 +1,55 @@
+-- =====================================================
+-- {{ group_name }} 模块测试数据脚本
+-- 每个子表 25 条主记录 + 6 条附件记录（前3条各2个附件）
+-- =====================================================
+SET NAMES utf8mb4;
+
+-- ----------------------------
+-- TRUNCATE（先从表后主表）
+-- ----------------------------
+{% for st in sub_tables | reverse %}
+TRUNCATE TABLE `{{ st.module.table_name }}_file`;
+TRUNCATE TABLE `{{ st.module.table_name }}`;
+{% endfor %}
+
+-- ----------------------------
+-- 插入测试数据
+-- ----------------------------
+{% for st in sub_tables %}
+{% set base_id = loop.index * 1000000 %}
+-- {{ st.module.name }}（{{ st.module.code }}，25条，ID {{ base_id + 1 }}–{{ base_id + 25 }}）
+-- 年份分布: 1-9条(2023), 10-18条(2024), 19-25条(2025)
+INSERT INTO `{{ st.module.table_name }}` (
+  `id`{% for field in st.fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+({{ base_id + i }}, {% for field in st.fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+-- {{ st.module.name }} 附件数据（6条，挂在前3条主记录下，每条2个附件）
+{% set st_ft_count = st.file_types | length %}
+{% if st_ft_count > 0 %}
+{% set st_ft0 = st.file_types[0] %}
+{% set st_ft1 = st.file_types[1 % st_ft_count] if st_ft_count > 1 else st.file_types[0] %}
+INSERT INTO `{{ st.module.table_name }}_file` (
+  `id`, `{{ st.module.code }}_id`, `file_type`, `file_url`, `file_name`,
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for rec_i in range(1, 4) %}
+({{ base_id * 100 + rec_i * 10 + 1 }}, {{ base_id + rec_i }}, '{{ st_ft0.code }}', 'http://minio/{{ st.module.code }}/{{ st.module.code }}_{{ rec_i }}_annex1.pdf', '{{ st.module.name }}附件{{ rec_i }}_1.pdf', 0, NOW(), 1001, 2001),
+({{ base_id * 100 + rec_i * 10 + 2 }}, {{ base_id + rec_i }}, '{{ st_ft1.code }}', 'http://minio/{{ st.module.code }}/{{ st.module.code }}_{{ rec_i }}_annex2.pdf', '{{ st.module.name }}附件{{ rec_i }}_2.pdf', 0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+{% else %}
+-- 跳过附件数据插入（file_types 为空）
+{% endif %}
+
+{% endfor %}
+
+SELECT '✅ {{ group_name }} 测试数据导入完成（每子表25条{% if sub_tables | selectattr('file_types') | list | length > 0 %} + 6条附件{% else %}0条附件{% endif %}，共{{ sub_tables | length }}个子表）
+' AS status;

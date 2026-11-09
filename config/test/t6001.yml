@@ -1,0 +1,256 @@
+# =====================================================
+# Multi-table-with-file 模式 — 多平级表有附件
+# =====================================================
+# 适用场景: 2+ 张平级表 + 附件上传，表之间无主从关系
+#
+# UI 交互特点:
+#   - 页面顶部使用 el-tabs 切换不同的平级表
+#   - 每个 Tab 是一个独立的列表页（完整的 CRUD）
+#   - 点击「新增」按钮 → isType 切换到新增页面
+#   - 点击「编辑」按钮 → isType 切换到编辑页面
+#   - 有附件的表在新增/编辑页面包含 el-upload 组件
+#   - 每个表可独立配置 file_types（支持多种附件类型）
+#   - 表之间完全独立，无数据关联
+#
+# 接口数量: 根据附件配置决定
+#   有附件的表: 14 个（基础11 + upload/file-list/file-remove）
+#   无附件的表: 11 个
+#   基础接口: list / detail / add / update / remove / export
+#            toggle / physical-remove / batch-delete / batch-physical-delete / batch-update
+#
+# =====================================================
+# YAML 字段填写说明（multi-table-with-file 模式）
+# =====================================================
+# project:
+#   name: 项目中文名（用于文档与展示）
+#   code: 项目编码（英文小写，如 demo）
+#   version: 版本号（如 1.0.0）
+#
+# modules:
+#   - name: 模块中文名
+#     code: 模块组编码（如 t6001）
+#     domain: 业务域编码（如 test）
+#     mode: 固定填写 multi-table-with-file
+#     description: 模块说明（可选）
+#
+#     status_toggles: [可选] 模块级状态切换按钮配置（应用到所有子表）
+#       - field: 状态字段名（如 status）
+#         label: 中文标签
+#         values: { "0": "禁用", "1": "启用" }
+#         colors: { "0": "danger", "1": "success" }
+#
+#     batch_operations: [可选] 模块级批量操作配置（应用到所有子表）
+#       delete:
+#         enabled: true  # 启用批量逻辑删除
+#       update:
+#         enabled: true
+#         confirm_message: "确认批量更新选中的记录？"
+#         fields:
+#           - name: "title"
+#             label: "标题"
+#             type: "input"
+#             required: false
+#           - name: "year"
+#             label: "年度"
+#             type: "date-year"
+#             required: false
+#           - name: "status"
+#             label: "状态"
+#             type: "select"
+#             required: false
+#             options:
+#               - label: "进行中"
+#                 value: 1
+#               - label: "已完成"
+#                 value: 2
+#           - name: "remark"
+#             label: "备注"
+#             type: "textarea"
+#             required: false
+#
+#     sub_tables: [必填] 平级表数组（支持 2+ 个表）
+#       - code: 表编码（如 t6001book）
+#         name: 表中文名
+#         status_toggles: [可选] 子表独立状态切换配置（覆盖模块级）
+#         batch_operations: [可选] 子表独立批量操作配置（覆盖模块级）
+#         file_types: [可选] 子表附件类型配置
+#           - code: 附件类型编码（英文小写，如 cover/photo）
+#             label: 附件类型中文名
+#         fields: [必填] 字段列表
+#
+# UI 交互特点:
+#   - 前端使用 el-tabs 切换不同平级表
+#   - 每个表有独立的 CRUD 操作 + 可选附件上传
+#   - 表之间无主从关系，完全独立
+#
+# fields[*] 字段配置:
+#   name: 字段英文名（camelCase）
+#   label: 字段中文名
+#   type: input/textarea/number/decimal/date/datetime/date-year/select
+#   required: 是否必填（true/false）
+#   filterable: 是否参与搜索（true/false）
+#   show_in_list: 是否列表显示（true/false）
+#   options: 仅 select 类型填写（label/value 列表）
+# =====================================================
+
+# =====================================================
+# 测试配置 - t6001 多平级有附件
+# =====================================================
+# 模式: multi-table-with-file
+# 附件配置: 两个表都有附件
+# 接口数量: 28（子表1 14 + 子表2 14）
+#   子表: list/detail/add/update/remove/export/toggle/physical-remove/batch-delete/batch-physical-delete/batch-update + upload/file-list/file-remove
+#
+# 验证产物:
+#   04-server/                                    # ← 扁平结构
+#     ├── controller/TestT6001bookController.java      # 14 接口（含附件3接口）
+#     ├── controller/TestT6001authorController.java    # 14 接口（含附件3接口）
+#     ├── entity/po/BizTestT6001book.java
+#     ├── entity/po/BizTestT6001bookFile.java          # 图书附件表
+#     ├── entity/po/BizTestT6001author.java
+#     ├── entity/po/BizTestT6001authorFile.java        # 作者附件表
+#     ├── entity/param/TestT6001bookParam.java         # 含 fileList
+#     ├── entity/param/TestT6001bookBatchUpdateParam.java
+#     ├── entity/param/TestT6001bookFileParam.java
+#     ├── entity/param/TestT6001authorParam.java       # 含 fileList
+#     ├── entity/param/TestT6001authorBatchUpdateParam.java
+#     ├── entity/param/TestT6001authorFileParam.java
+#     ├── entity/vo/TestT6001bookVO.java               # 含 fileList
+#     ├── entity/vo/TestT6001bookFileVO.java
+#     ├── entity/vo/TestT6001authorVO.java             # 含 fileList
+#     ├── entity/vo/TestT6001authorFileVO.java
+#     ├── mapper/TestT6001bookMapper.java
+#     ├── mapper/TestT6001bookFileMapper.java
+#     ├── mapper/TestT6001authorMapper.java
+#     ├── mapper/TestT6001authorFileMapper.java
+#     ├── service/ITestT6001bookService.java
+#     ├── service/ITestT6001authorService.java
+#     ├── service/impl/TestT6001bookServiceImpl.java   # 含 MinIO
+#     └── service/impl/TestT6001authorServiceImpl.java # 含 MinIO
+#   05-web/
+#     ├── views/test/t6001/index.vue                  # Tab 切换两个平级列表
+#     ├── views/test/t6001/t6001-t6001book-add-or-edit.vue  # 含附件上传
+#     ├── views/test/t6001/t6001-t6001author-add-or-edit.vue # 含附件上传
+#     └── service/test/t6001.js                       # 28 个 API 方法
+#
+# 命名规则: {DomainPascal}{CodePascal}*
+#   平级表1: TestT6001book* / 平级表2: TestT6001author*
+# =====================================================
+
+project:
+  name: "Libra Boot Low"
+  code: "demo"
+  version: "1.0.0"
+
+modules:
+  - name: "多平级有附件"
+    code: "t6001"
+    domain: "test"
+    mode: "multi-table-with-file"
+    description: "t12 测试模块 - 多平级有附件"
+
+    status_toggles:
+      - field: "status"
+        label: "状态"
+        values:
+          "0": "在售"
+          1: "缺货"
+          2: "下架"
+        colors:
+          "0": "success"
+          1: "warning"
+          2: "danger"
+
+    batch_operations:
+      delete:
+        enabled: true
+      update:
+        enabled: true
+        confirm_message: "确认批量更新选中的记录？"
+        fields:
+          - name: "status"
+            label: "状态"
+            type: "select"
+            required: false
+            options:
+              - label: "下架"
+                value: 0
+              - label: "上架"
+                value: 1
+              - label: "缺货"
+                value: 2
+          - name: "remark"
+            label: "备注"
+            type: "textarea"
+            required: false
+
+    sub_tables:
+      - code: "t6001book"
+        name: "图书管理"
+        file_types:
+          - code: "cover"
+            label: "封面图片"
+          - code: "content"
+            label: "内容预览"
+        fields:
+          - name: "bookName"
+            label: "书名"
+            type: "input"
+            required: true
+            filterable: true
+            show_in_list: true
+          - name: "author"
+            label: "作者"
+            type: "input"
+            filterable: true
+            show_in_list: true
+          - name: "publishDate"
+            label: "出版日期"
+            type: "date"
+            show_in_list: true
+          - name: "price"
+            label: "价格"
+            type: "number"
+            show_in_list: true
+          - name: "status"
+            label: "状态"
+            type: "select"
+            filterable: true
+            show_in_list: true
+            options:
+              - label: "在售"
+                value: 0
+              - label: "缺货"
+                value: 1
+              - label: "下架"
+                value: 2
+          - name: "remark"
+            label: "备注"
+            type: "textarea"
+
+      - code: "t6001author"
+        name: "作者管理"
+        file_types:
+          - code: "photo"
+            label: "作者照片"
+          - code: "resume"
+            label: "简历文件"
+        fields:
+          - name: "authorName"
+            label: "作者姓名"
+            type: "input"
+            required: true
+            filterable: true
+            show_in_list: true
+          - name: "country"
+            label: "国家"
+            type: "input"
+            filterable: true
+            show_in_list: true
+          - name: "birthDate"
+            label: "出生日期"
+            type: "date"
+            show_in_list: true
+          - name: "remark"
+            label: "简介"
+            type: "textarea"

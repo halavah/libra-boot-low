@@ -1,0 +1,88 @@
+---
+name: {{ module.code_pascal | upper }} Database Design Standards (Cognitive Optimized)
+description: {{ module.name }}数据库设计。
+---
+
+# {{ module.name }}数据库设计
+
+## 1. 表结构概览
+
+| 表名 (Table) | 说明 (Description) | 备注 |
+| :--- | :--- | :--- |
+| `{{ module.table_name }}` | {{ module.name }}主表 | 核心业务表 |
+| `{{ module.table_name }}_file` | {{ module.name }}附件从表 | 1:N 关联 |
+
+## 2. 详细设计
+
+### 2.1 {{ module.name }}表 (`{{ module.table_name }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **审计字段**: 包含 `create_dept` (数据权限核心)
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 | 范例 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 | |
+{% for field in fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} | {% if field.type == 'select' %}{{ field.options | map(attribute='label') | join('/') }}{% endif %} |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 | 0 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 | |
+| `create_user` | BIGINT | 20 | Y | 创建人 | |
+| `create_time` | DATETIME | | Y | 创建时间 | |
+| `update_user` | BIGINT | 20 | N | 更新人 | |
+| `update_time` | DATETIME | | N | 更新时间 | |
+
+### 2.2 {{ module.name }}附件表 (`{{ module.table_name }}_file`)
+
+> 选项A（1:N独立附件表），依据 07-upload 规范
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 |
+| `{{ module.code }}_id` | BIGINT | 20 | Y | 关联{{ module.name }}主表ID |
+| `file_type` | VARCHAR | 50 | N | 附件类型：{% for ft in module.file_types %}{{ ft.code }}={{ ft.label }}{% if not loop.last %}, {% endif %}{% endfor %} |
+| `file_url` | VARCHAR | 500 | Y | MinIO文件绝对地址 |
+| `file_name` | VARCHAR | 200 | N | 原始文件名（前端回显） |
+| `is_deleted` | INT | 1 | Y | 逻辑删除：0=正常，1=已删除 |
+| `create_dept` | BIGINT | 20 | N | 创建部门 |
+| `create_user` | BIGINT | 20 | N | 创建人 |
+| `create_time` | DATETIME | | N | 创建时间 |
+| `update_user` | BIGINT | 20 | N | 更新人 |
+| `update_time` | DATETIME | | N | 更新时间 |
+
+## 3. 索引设计
+{% for field in fields if field.filterable %}
+{{ loop.index }}.  `idx_{{ field.column_name }}` (`{{ field.column_name }}`)
+
+{% endfor %}
+{{ (fields | selectattr('filterable') | list | length) + 1 }}.  `idx_{{ module.code }}_id` (`{{ module.code }}_id`) — 附件表外键索引
+
+## 4. 表关系图
+
+```
+{{ module.table_name }}（主表）
+  └─── 1:N ──→ {{ module.table_name }}_file（附件从表）
+                 外键: {{ module.code }}_id | 索引: idx_{{ module.code }}_id
+```
+
+## 5. 枚举定义
+{% set select_fields = fields | selectattr('type', 'equalto', 'select') | list %}
+{% for field in select_fields %}
+
+### 5.{{ loop.index }} {{ field.name }} — {{ field.label }}
+```java
+public enum {{ field.name_pascal }}Enum {
+{% for opt in field.options %}
+    {{ opt.label | upper | replace(' ', '_') }}({{ opt.value }}, "{{ opt.label }}"){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+}
+```
+{% endfor %}
+
+### 5.{{ select_fields | length + 1 }} fileType — 附件类型
+| 值 | 含义 |
+| :--- | :--- |
+{% for ft in module.file_types %}
+| `{{ ft.code }}` | {{ ft.label }} |
+{% endfor %}

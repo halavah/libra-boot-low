@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ==============================================================================
+# 【脚本定位】
+#   03-http-scripts/gen_mock.py — Postman/Apifox 集合生成器
+#   在整个测试链路中属于"辅助工具"：
+#     它读取 03-http/ 目录下已有的 .http 文件，将其转换为
+#     Postman Collection v2.1 格式的 JSON，供导入 Postman/Apifox 使用。
+#   不参与自动化闭环，仅在需要可视化调试时手动执行。
+#
+# 【设计思路】
+#   1. 零硬编码 / 自动推断
+#      模块名、模块路径通过"向上爬目录"自动推断，脚本放在哪个模块
+#      目录下就服务于哪个模块，无需任何配置文件。
+#      baseUrl 硬编码为 127.0.0.1:9072，修改时全局搜索同步更新。
+#
+#   2. 以 .http 文件为唯一数据源
+#      .http 文件是开发阶段最接近"真实请求"的表达方式，
+#      直接解析它可以确保 Postman 集合与实际接口定义保持一致，
+#      避免手动维护两套文档产生的漂移。
+#
+#   3. 一文件一 Folder
+#      每个 .http 文件对应 Postman 集合中的一个 Folder，
+#      Folder 名称去掉文件名的数字前缀（如 01-xxx → xxx），
+#      保持集合结构清晰，与 .http 文件的分组语义对齐。
+#
+#   4. 变量占位符保留
+#      {{ '{{' }}token{{ '}}' }} 等 Postman 变量语法在生成的 JSON 中原样保留，
+#      导入后在 Postman Environment 中统一配置，无需每个请求单独填写。
+#
+#   5. 带时间戳的输出文件名
+#      格式：{module}_{YYYYMMDD_HHmmss}.json
+#      每次生成都产生新文件，保留历史版本，方便对比差异。
+#      输出到 ../05-out/ 目录，与测试日志放在一起便于归档。
+#
+#   6. 渐进式解析，容错优先
+#      .http 文件格式较自由，解析器采用"遇到不认识的行跳过"策略，
+#      避免因格式细节差异导致整个文件解析失败。
+#
+# 【执行流程】
+#   启动
+#     ↓ 自动推断模块名 / 模块路径
+#     ↓ 解析命令行参数（--dir / --name）
+#     ↓ 遍历 03-http/ 目录下所有 .http 文件
+#     ↓   每个文件 → parse_http_file → 请求列表
+#     ↓   每个文件封装为一个 Folder
+#     ↓ 组装 Postman Collection 结构
+#     ↓ 写入 05-out/{module}_{timestamp}.json
+#
+# 【调用关系】
+#   ┌─────────────────────────────────────────────────────────┐
+#   │  手动执行          python gen_mock.py                   │
+#   │  通过包装器执行    ./gen_mock.sh  /  .\gen_mock.ps1     │
+#   │  不被任何脚本自动调用（纯手动工具）                     │
+#   └─────────────────────────────────────────────────────────┘
+#   输出文件导入路径：Postman → Import → 选择生成的 .json 文件
+#
+# 【注意事项】
+#   - 依赖：仅使用 Python 标准库，无需额外安装
+#   - baseUrl 硬编码为 127.0.0.1:9072，如需修改请全局搜索同步更新
+#   - 输出目录 ../05-out/ 不存在时会自动创建
+# ==============================================================================
+# 硬编码说明（修改时请搜索并同步更新）:
+#   - baseUrl: 127.0.0.1:9072 (接口服务地址，出现在生成逻辑中)
+# ==============================================================================
+"""
+Postman/Apifox 集合生成器 (Postman Collection Generator)
+
+【作用】
+解析模块下的 .http 文件，自动生成 Postman Collection v2.1 格式的 JSON 文件。
+用于快速导入接口测试到 Postman 或 Apifox 等 API 测试工具。
+
+【执行模式】
+命令行模式:
+   python gen_mock.py [--dir <目录>] [--name <集合名称>]
+
+   - --dir: 指定扫描的 .http 文件目录（默认: ../03-http）
+   - --name: 指定生成的集合名称（默认: {MODULE}_API_Collection）
+
+【输出】
+生成文件: {module}_{timestamp}.json
+- 格式: Postman Collection v2.1
+- 位置: 脚本执行目录
+- 文件名示例: user_20260205_143000.json
+
+【调用关系】
+- 独立工具，不被其他脚本自动调用
+- 用于开发阶段快速生成 API 测试集合
+- 手动执行后，将生成的 JSON 文件导入 Postman/Apifox
+
+【自动检测逻辑】
+- 模块名称: 通过脚本所在目录名自动推断
+- 模块路径: 自动构建为 "sys/user" 格式
+- HTTP 文件: 扫描指定目录下所有 .http 文件
+
+【示例】
+# 使用默认设置生成
+python gen_mock.py
+
+# 指定自定义集合名称
+python gen_mock.py --name "User 测试集合"
+
+# 指定自定义目录
+python gen_mock.py --dir /path/to/http/files
+"""
+
+import argparse
+import json
+import os
+import re
+import time
+from datetime import datetime
+
+
+def detect_module_info(script_dir):
+    """自动检测模块信息"""
+    module_dir = os.path.dirname(script_dir)
+    module_name = os.path.basename(module_dir)
+
+    parent_dir = os.path.dirname(module_dir)
+    parent_name = os.path.basename(parent_dir)
+    # 去掉前缀数字，如 "01.sys" -> "sys"
+    if "." in parent_name:
+        parent_name = parent_name.split(".", 1)[1]
+
+    module_path = f"{parent_name}/{module_name}"
+    return module_name, module_path
+
+
+def parse_http_file(file_path, module_path):
+    """Parses a single .http file into a list of request objects."""
+    requests = []
+    current_request = None
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # Variables context
+    variables = {
+        "baseUrl": f"http://127.0.0.1:9072/api/layer/v1/sys-service/{module_path}",
+        "token": "{{ '{{' }}token{{ '}}' }}",
+    }
+
+    # Regex patterns
+    request_line_pattern = re.compile(r"^(GET|POST|PUT|DELETE|PATCH)\s+([^\s]+)")
+
+    current_request_lines = []
+    request_name = "Untitled Request"
+
+    for line in lines:
+        line = line.strip()
+
+        # Variable definition
+        if line.startswith("@") and "=" in line:
+            key, val = line.split("=", 1)
+            variables[key.strip("@").strip()] = val.strip()
+            continue
+
+        # Request separator
+        if line.startswith("###"):
+            # Save previous request if exists
+            if current_request_lines:
+                parsed = parse_request_block(
+                    current_request_lines, request_name, variables
+                )
+                if parsed:
+                    requests.append(parsed)
+                current_request_lines = []
+
+            # Extract new request name
+            # ### 1. This is a name
+            name_part = line.replace("###", "").strip()
+            # Remove numbering if strictly compliant e.g. "1. "
+            request_name = re.sub(r"^\d+\.\s*", "", name_part)
+            if not request_name:
+                request_name = "Untitled Request"
+            continue
+
+        current_request_lines.append(line)
+
+    # Filter out empty request blocks that might have been created by trailing ###
+    current_request_lines = [line for line in current_request_lines if line.strip()]
+
+    # Add last request
+    if current_request_lines:
+        parsed = parse_request_block(current_request_lines, request_name, variables)
+        if parsed:
+            requests.append(parsed)
+
+    return requests
+
+
+def parse_request_block(lines, name, global_vars):
+    """Parses lines of a single request block."""
+    if not lines:
+        return None
+
+    method = "GET"
+    url = ""
+    headers = []
+    body_lines = []
+
+    is_body = False
+
+    # First line should be Method URL
+    # Can contain comments before
+
+    header_section_done = False
+
+    for line in lines:
+        if not line:
+            if method and url and not is_body and header_section_done:
+                is_body = True
+            continue
+
+        if line.startswith("#"):
+            continue
+
+        # Check for Method URL
+        # We assume Method is uppercase
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ["GET", "POST", "PUT", "DELETE", "PATCH"]:
+            method = parts[0]
+            url = parts[1]
+            header_section_done = True
+            continue
+
+        if is_body:
+            body_lines.append(line)
+        elif header_section_done:
+            # It's a header
+            if ":" in line:
+                key, val = line.split(":", 1)
+                headers.append(
+                    {"key": key.strip(), "value": val.strip(), "type": "text"}
+                )
+            else:
+                # Maybe logic error or malformed header, treat as body?
+                # Usually .http files separate headers and body by newline
+                is_body = True
+                body_lines.append(line)
+
+    if not url:
+        return None
+
+    # Replace variables in URL
+    # .http uses {{ '{{' }}host{{ '}}' }}
+    # Postman uses {{ '{{' }}host{{ '}}' }} too, so keep valid format depending on target
+    # But for Apifox import, we might want resolved or variable ready
+    # Note: .http variables like @host need replacement if we want hardcoded,
+    # OR we export environments.
+    # Let's simple-replace @host variables defined in file
+
+    for key, val in global_vars.items():
+        # .http syntax: {{ '{{' }}key{{ '}}' }} -> val
+        # But wait, local variables in .http are often @host=...
+        # and usage is {{ '{{' }}host{{ '}}' }}
+        # We don't need to replace {{ '{{' }}host{{ '}}' }} if we import variable into Postman,
+        # But simpler is to allow Postman to have {{ '{{' }}host{{ '}}' }} environment.
+        pass
+
+    # Body Logic
+    body_str = "".join(body_lines)
+    body_mode = "raw"
+    body_options = {"raw": {"language": "json"}}
+
+    return {
+        "name": name,
+        "request": {
+            "method": method,
+            "header": headers,
+            "url": {
+                "raw": url,
+                "host": extract_host(url),
+                "path": extract_path(url),
+                "query": extract_query(url),
+            },
+            "body": {"mode": body_mode, "raw": body_str, "options": body_options},
+        },
+        "response": [],
+    }
+
+
+def extract_host(url_raw):
+    # simple extraction, usually {{ '{{' }}host{{ '}}' }} or http://...
+    # Postman URL object structure
+    if "://" in url_raw:
+        return url_raw.split("://")[1].split("/")[0].split(".")
+    return [url_raw.split("/")[0]]  # Fallback
+
+
+def extract_path(url_raw):
+    # remove schema
+    no_schema = url_raw
+    if "://" in url_raw:
+        no_schema = url_raw.split("://")[1]
+
+    parts = no_schema.split("/")
+    if len(parts) > 1:
+        path_part = parts[1:]
+        # Remove query params from last part
+        if "?" in path_part[-1]:
+            path_part[-1] = path_part[-1].split("?")[0]
+        return path_part
+    return []
+
+
+def extract_query(url_raw):
+    query = []
+    if "?" in url_raw:
+        q_str = url_raw.split("?")[1]
+        pairs = q_str.split("&")
+        for p in pairs:
+            if "=" in p:
+                k, v = p.split("=")
+                query.append({"key": k, "value": v})
+            else:
+                query.append({"key": p, "value": ""})
+    return query
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate Postman Collection from .http files"
+    )
+    scan_dir_default = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../03-http")
+    )
+    parser.add_argument("--dir", default=scan_dir_default, help="Directory to scan")
+    parser.add_argument("--name", default=None, help="Collection Name")
+    args = parser.parse_args()
+
+    scan_dir = args.dir
+
+    # Auto-detect module info
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    module_name, module_path = detect_module_info(script_dir)
+
+    collection_name = (
+        args.name if args.name else f"{module_name.upper()} API Collection"
+    )
+
+    items = []
+
+    files = [f for f in os.listdir(scan_dir) if f.endswith(".http")]
+    files.sort()
+
+    for f in files:
+        print(f"Processing {f}...")
+        file_items = parse_http_file(os.path.join(scan_dir, f), module_path)
+
+        # Create a Folder for each file
+        folder_name = f.replace(".http", "")
+        # Remove numbering like "01-"
+        clean_name = re.sub(r"^\d+[-_]", "", folder_name)
+
+        folder = {"name": clean_name, "item": file_items}
+        items.append(folder)
+
+    # Generate Output Filename
+    # Format: prefix_YYYYMMDD_HHmmss.json
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../05-out"))
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_filename = os.path.join(output_dir, f"{module_name}_{timestamp}.json")
+
+    collection = {
+        "info": {
+            "_postman_id": "",
+            "name": collection_name,
+            "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        },
+        "item": items,
+        "variable": [
+            {
+                "key": "baseUrl",
+                "value": f"http://127.0.0.1:9072/api/layer/v1/sys-service/{module_path}",
+                "type": "string",
+            },
+            {"key": "token", "value": "your_token_here", "type": "string"},
+        ],
+    }
+
+    with open(output_filename, "w", encoding="utf-8") as f:
+        json.dump(collection, f, indent=4, ensure_ascii=False)
+
+    print(f"Generated: {output_filename}")
+
+
+if __name__ == "__main__":
+    main()

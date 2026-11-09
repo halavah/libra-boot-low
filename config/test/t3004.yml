@@ -1,0 +1,379 @@
+# =====================================================
+# Master-detail-modules-with-file 模式 — 模块级主从有附件
+# =====================================================
+# 适用场景: 模块级配置多明细表 + 附件上传，支持主表/明细表独立配置 file_types
+#
+# UI 交互特点:
+#   - 主列表页展示主表数据，支持条件搜索（G-form-search）
+#   - 点击主表某行 → isType 切换到明细页
+#   - 明细页使用 el-tabs 切换多个明细表（如：任务明细、记录明细）
+#   - 每个 Tab 内展示对应明细表的列表数据
+#   - 有附件的表在新增/编辑页面包含 el-upload 组件
+#   - 明细新增/编辑使用页面切换（isType 模式）
+#   - 返回按钮返回主列表页
+#
+# 接口数量: 根据附件配置决定
+#   有附件的表: 14 个（基础11 + upload/file-list/file-remove）
+#   无附件的表: 11 个
+#   基础接口: list / detail / add / update / remove / export
+#            toggle / physical-remove / batch-delete / batch-physical-delete / batch-update
+#
+# =====================================================
+# YAML 字段填写说明（master-detail-modules-with-file 模式）
+# =====================================================
+# project:
+#   name: 项目中文名（用于文档与展示）
+#   code: 项目编码（英文小写，如 demo）
+#   version: 版本号（如 1.0.0）
+#
+# modules:
+#   - name: 模块中文名
+#     code: 模块组编码（如 t3004）
+#     domain: 业务域编码（如 test）
+#     mode: 固定填写 master-detail-modules-with-file
+#     description: 模块说明（可选）
+#
+#     master: [必填] 主表配置
+#       code: 表编码（决定后端类名后缀，如 t3004proj）
+#       name: 表中文名
+#       status_toggles: [可选] 主表状态切换按钮配置
+#       batch_operations: [可选] 主表批量操作配置
+#       file_types: [可选] 主表附件类型配置（若不配置则不生成附件代码）
+#       fields: [必填] 主表字段列表
+#
+#     detail_modules: [必填] 明细表数组（支持 2+ 个明细表）
+#       - code: 明细表编码（如 t3004task）
+#         name: 明细表中文名
+#         master_fk: [必填] 外键字段名，关联主表 id（如 projId）
+#         status_toggles: [可选] 明细表状态切换按钮配置
+#         batch_operations: [可选] 明细表批量操作配置
+#         file_types: [可选] 明细表附件类型配置（若不配置则不生成附件代码）
+#         fields: [必填] 明细表字段列表
+#
+# file_types 配置:
+#   - code: 附件类型编码（英文小写，如 annex/photo）
+#     label: 附件类型中文名
+#
+# status_toggles 配置:
+#   - field: 状态字段名（如 status）
+#     label: 中文标签
+#     values: { "0": "禁用", "1": "启用" }
+#     colors: { "0": "danger", "1": "success" }
+#
+# batch_operations 配置:
+#   delete:
+#     enabled: true  # 启用批量逻辑删除
+#   update:
+#     enabled: true
+#     confirm_message: "确认批量更新选中的记录？"
+#     fields:
+#       - name: "title"
+#         label: "标题"
+#         type: "input"
+#         required: false
+#       - name: "year"
+#         label: "年度"
+#         type: "date-year"
+#         required: false
+#       - name: "status"
+#         label: "状态"
+#         type: "select"
+#         required: false
+#         options:
+#           - label: "进行中"
+#             value: 1
+#           - label: "已完成"
+#             value: 2
+#       - name: "remark"
+#         label: "备注"
+#         type: "textarea"
+#         required: false
+#
+# fields[*] 字段配置:
+#   name: 字段英文名（camelCase）
+#   label: 字段中文名
+#   type: input/textarea/number/decimal/date/datetime/date-year/select
+#   required: 是否必填（true/false）
+#   filterable: 是否参与搜索（true/false）
+#   show_in_list: 是否列表显示（true/false）
+#   options: 仅 select 类型填写（label/value 列表）
+# =====================================================
+
+# =====================================================
+# 测试配置 - t3004 多明细全部附件
+# =====================================================
+# 模式: master-detail-modules-with-file
+# 附件配置: 主表✓ 明细✓
+# 接口数量: 42（主表 14 + 明细1 14 + 明细2 14）
+#   主表: list/detail/add/update/remove/export/toggle/physical-remove/batch-delete/batch-physical-delete/batch-update + upload/file-list/file-remove
+#   明细: list/detail/add/update/remove/export/toggle/physical-remove/batch-delete/batch-physical-delete/batch-update + upload/file-list/file-remove
+#
+# 验证产物:
+#   04-server/                                    # ← 扁平结构
+#     ├── controller/TestT3004projController.java      # 主表 14 接口（含附件3接口）
+#     ├── controller/TestT3004taskController.java      # 明细1 14 接口（含附件3接口）
+#     ├── controller/TestT3004recordController.java    # 明细2 14 接口（含附件3接口）
+#     ├── entity/po/BizTestT3004proj.java
+#     ├── entity/po/BizTestT3004projFile.java          # 主表 FilePO
+#     ├── entity/po/BizTestT3004task.java              # 含 projId 外键
+#     ├── entity/po/BizTestT3004taskFile.java          # 明细1 FilePO
+#     ├── entity/po/BizTestT3004record.java            # 含 projId 外键
+#     ├── entity/po/BizTestT3004recordFile.java        # 明细2 FilePO
+#     ├── entity/param/TestT3004projParam.java         # 含 fileList
+#     ├── entity/param/TestT3004projBatchUpdateParam.java
+#     ├── entity/param/TestT3004projFileParam.java
+#     ├── entity/param/TestT3004taskParam.java         # 含 fileList
+#     ├── entity/param/TestT3004taskBatchUpdateParam.java
+#     ├── entity/param/TestT3004taskFileParam.java
+#     ├── entity/param/TestT3004recordParam.java       # 含 fileList
+#     ├── entity/param/TestT3004recordBatchUpdateParam.java
+#     ├── entity/param/TestT3004recordFileParam.java
+#     ├── entity/vo/TestT3004projVO.java               # 含 fileList
+#     ├── entity/vo/TestT3004projFileVO.java
+#     ├── entity/vo/TestT3004taskVO.java               # 含 fileList
+#     ├── entity/vo/TestT3004taskFileVO.java
+#     ├── entity/vo/TestT3004recordVO.java             # 含 fileList
+#     ├── entity/vo/TestT3004recordFileVO.java
+#     ├── mapper/TestT3004projMapper.java
+#     ├── mapper/TestT3004projFileMapper.java
+#     ├── mapper/TestT3004taskMapper.java
+#     ├── mapper/TestT3004taskFileMapper.java
+#     ├── mapper/TestT3004recordMapper.java
+#     ├── mapper/TestT3004recordFileMapper.java
+#     ├── service/ITestT3004projService.java
+#     ├── service/ITestT3004taskService.java
+#     ├── service/ITestT3004recordService.java
+#     ├── service/impl/TestT3004projServiceImpl.java   # 含 MinIO
+#     ├── service/impl/TestT3004taskServiceImpl.java   # 含 MinIO
+#     └── service/impl/TestT3004recordServiceImpl.java # 含 MinIO
+#   05-web/
+#     ├── views/test/t3004/index.vue                  # 主列表 + 明细按钮切换
+#     └── service/test/t3004.js                       # 42 个 API 方法
+#
+# 命名规则: {DomainPascal}{CodePascal}*
+#   主表: TestT3004proj* / 明细1: TestT3004task* / 明细2: TestT3004record*
+# =====================================================
+
+project:
+  name: "Libra Boot Low"
+  code: "demo"
+  version: "1.0.0"
+
+modules:
+  - name: "多明细全部附件"
+    code: "t3004"
+    domain: "test"
+    mode: "master-detail-modules-with-file"
+    description: "T06-3 测试模块 - 多明细全部有附件"
+
+    master:
+      code: "t3004proj"
+      name: "项目主表"
+
+      status_toggles:
+        - field: "status"
+          label: "状态"
+          values:
+            "0": "草稿"
+            1: "进行中"
+            2: "已完成"
+          colors:
+            "0": "info"
+            1: "warning"
+            2: "success"
+
+      batch_operations:
+        delete:
+          enabled: true
+        update:
+          enabled: true
+          confirm_message: "确认批量更新选中的主表记录？"
+          fields:
+            - name: "status"
+              label: "状态"
+              type: "select"
+              required: false
+              options:
+                - label: "未开始"
+                  value: 0
+                - label: "进行中"
+                  value: 1
+                - label: "已完成"
+                  value: 2
+            - name: "remark"
+              label: "备注"
+              type: "textarea"
+              required: false
+
+      file_types:
+        - code: "plan"
+          label: "计划文件"
+        - code: "report"
+          label: "报告文件"
+      fields:
+        - name: "projectName"
+          label: "项目名称"
+          type: "input"
+          required: true
+          filterable: true
+          show_in_list: true
+        - name: "year"
+          label: "年度"
+          type: "date-year"
+          required: true
+          filterable: true
+          show_in_list: true
+        - name: "status"
+          label: "状态"
+          type: "select"
+          filterable: true
+          show_in_list: true
+          options:
+            - label: "草稿"
+              value: 0
+            - label: "进行中"
+              value: 1
+            - label: "已完成"
+              value: 2
+        - name: "remark"
+          label: "备注"
+          type: "textarea"
+
+    detail_modules:
+      - code: "t3004task"
+        name: "任务明细"
+        master_fk: "projId"
+        file_types:
+          - code: "result"
+            label: "成果文件"
+          - code: "photo"
+            label: "现场照片"
+
+        status_toggles:
+          - field: "taskStatus"
+            label: "任务状态"
+            values:
+              "0": "未开始"
+              1: "进行中"
+              2: "已完成"
+            colors:
+              "0": "info"
+              1: "warning"
+              2: "success"
+
+        batch_operations:
+          delete:
+            enabled: true
+          update:
+            enabled: true
+            confirm_message: "确认批量更新选中的任务记录？"
+            fields:
+              - name: "status"
+                label: "状态"
+                type: "select"
+                required: false
+                options:
+                  - label: "待开始"
+                    value: 0
+                  - label: "进行中"
+                    value: 1
+                  - label: "已完成"
+                    value: 2
+              - name: "remark"
+                label: "备注"
+                type: "textarea"
+                required: false
+
+        fields:
+          - name: "taskName"
+            label: "任务名称"
+            type: "input"
+            required: true
+            filterable: true
+            show_in_list: true
+          - name: "taskDate"
+            label: "任务日期"
+            type: "date"
+            required: true
+            show_in_list: true
+          - name: "taskStatus"
+            label: "任务状态"
+            type: "select"
+            filterable: true
+            show_in_list: true
+            options:
+              - label: "未开始"
+                value: 0
+              - label: "进行中"
+                value: 1
+              - label: "已完成"
+                value: 2
+          - name: "remark"
+            label: "备注"
+            type: "textarea"
+
+      - code: "t3004record"
+        name: "记录明细"
+        master_fk: "projId"
+        file_types:
+          - code: "document"
+            label: "文档附件"
+
+        status_toggles:
+          - field: "recordStatus"
+            label: "记录状态"
+            values:
+              "0": "待审核"
+              1: "已审核"
+            colors:
+              "0": "warning"
+              1: "success"
+
+        batch_operations:
+          delete:
+            enabled: true
+          update:
+            enabled: true
+            confirm_message: "确认批量更新选中的记录？"
+            fields:
+              - name: "status"
+                label: "状态"
+                type: "select"
+                required: false
+                options:
+                  - label: "待审核"
+                    value: 0
+                  - label: "已通过"
+                    value: 1
+                  - label: "已拒绝"
+                    value: 2
+              - name: "remark"
+                label: "备注"
+                type: "textarea"
+                required: false
+
+        fields:
+          - name: "recordTitle"
+            label: "记录标题"
+            type: "input"
+            required: true
+            filterable: true
+            show_in_list: true
+          - name: "recordDate"
+            label: "记录日期"
+            type: "date"
+            required: true
+            show_in_list: true
+          - name: "recordStatus"
+            label: "记录状态"
+            type: "select"
+            filterable: true
+            show_in_list: true
+            options:
+              - label: "待审核"
+                value: 0
+              - label: "已审核"
+                value: 1
+          - name: "content"
+            label: "内容"
+            type: "textarea"

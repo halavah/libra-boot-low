@@ -1,0 +1,394 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ==============================================================================
+# 【脚本定位】
+#   02-sql-scripts/run_mock.py — 数据库初始化核心脚本
+#   在整个测试链路中处于最底层：它是所有测试的"地基"，负责把数据库
+#   恢复到一个已知的干净状态，保证每次测试都有可重复的数据环境。
+#
+# 【设计思路】
+#   1. 零硬编码原则
+#      模块名、域名、SQL 文件路径全部通过"向上爬目录"自动推断，
+#      脚本放在哪个模块目录下就服务于哪个模块，无需任何配置文件。
+#
+#   2. 双模式兼容
+#      - 交互式模式：开发者在终端手动运行时展示菜单，降低误操作风险
+#      - 命令行模式：带参数 + --yes 时全程无交互，专为自动化调用设计
+#      两种模式共享同一套执行逻辑（exec_table_structure / insert_mock_data），
+#      避免代码重复。
+#
+#   3. 三档操作粒度
+#      模式 0（表结构 + 数据）是日常最常用的"全重置"；
+#      模式 1（仅表结构）用于表结构变更后只需重建表不需要数据的场景；
+#      模式 2（仅数据）用于表结构不变、只需刷新测试数据的场景。
+#      三档分开设计，避免"一键全跑"造成不必要的破坏。
+#
+#   4. 环境配置外置
+#      数据库连接信息从 ../../../../.env 读取，
+#      开发者只需维护一份 .env，所有模块共享，不在代码里硬编码密码。
+#
+#   5. SQL 语句健壮解析
+#      支持多语句、-- 注释过滤、自定义 DELIMITER（存储过程），
+#      逐条 execute 而非 executemany，便于精准定位失败的 SQL 行。
+#
+# 【执行流程】
+#   启动
+#     ↓ 自动推断模块名 / 模块路径
+#     ↓ 加载 .env → 获取 DB 连接配置
+#     ↓ 判断是否有命令行参数
+#       ├─ 有参数 → 命令行模式 → 直接执行对应操作 → 退出
+#       └─ 无参数 → 交互式模式 → 显示菜单 → 等待输入 → 执行 → 循环
+#
+# 【调用关系】
+#   ┌─────────────────────────────────────────────────────┐
+#   │  手动执行          → run_mock.sh / run_mock.ps1     │
+#   │  自动调用          → test_mock.py（模式 0 --yes）   │
+#   │  L3 闭环脚本调用   → run_mock.sh / run_mock.ps1     │
+#   └─────────────────────────────────────────────────────┘
+#   注意：test_mock.py 可通过 SKIP_DB_INIT=1 跳过对本脚本的调用。
+#
+# 【注意事项】
+#   - 模式 0/1 会执行 DROP/CREATE TABLE，生产环境禁止使用
+#   - SQL 文件必须位于 ../02-sql/ 目录下，命名规范：
+#       {module}_exec.sql（建表脚本）
+#       {module}_mock.sql（测试数据）
+# ==============================================================================
+"""
+数据库初始化脚本 (Database Initialization Script)
+
+【作用】
+自动检测当前模块名称（如 {{ module.code }}），执行对应的表结构创建和测试数据插入。
+支持交互式菜单和命令行非交互模式，适用于开发、测试和自动化场景。
+
+【执行模式】
+1. 交互式模式（默认）:
+   python run_mock.py
+   或
+   powershell -File run_mock.ps1
+
+   - 显示操作菜单
+   - 用户选择: 0=表结构+数据, 1=仅表结构, 2=仅数据
+   - 需要手动确认
+
+2. 命令行模式（非交互，推荐用于自动化）:
+   python run_mock.py <mode> [--yes]
+   或
+   powershell -File run_mock.ps1 <mode> [-yes]
+
+   - mode: 0=表结构+数据, 1=仅表结构, 2=仅数据
+   - --yes/-yes: 跳过确认提示，直接执行
+
+【调用关系】
+- 被 test_mock.py 自动调用（模式 0 --yes，可通过 SKIP_DB_INIT=1 禁用）
+- 被 L3 原子闭环脚本调用（通过 run_mock.ps1/sh 包装器）
+- 可手动独立运行
+
+【自动检测逻辑】
+- 模块名称: 通过脚本所在目录名自动推断（如 {{ module.code }}）
+- 模块路径: 自动构建为 "{{ module.domain }}/{{ module.code }}" 格式
+- SQL 文件: 自动定位到 ../02-sql/{{ module.code }}_exec.sql 和 {{ module.code }}_mock.sql
+- 数据库配置: 从 ../../../../.env 读取环境变量
+
+【依赖】
+- Python 3.x
+- PyMySQL (pip install pymysql)
+
+【示例】
+# 交互式执行
+python run_mock.py
+
+# 非交互式执行（表结构+数据）
+python run_mock.py 0 --yes
+
+# 仅执行表结构
+python run_mock.py 1 --yes
+"""
+
+import os
+import sys
+
+# =============================================================================
+# 路径常量定义
+# =============================================================================
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODULE_DIR = os.path.dirname(SCRIPT_DIR)  # 模块根目录
+SQL_DIR = os.path.join(MODULE_DIR, "02-sql")
+ENV_FILE = os.path.abspath(os.path.join(SCRIPT_DIR, "../../../../.env"))
+
+
+class SqlRunner:
+    def __init__(self):
+        self.script_dir = SCRIPT_DIR
+        self.module_dir = MODULE_DIR
+        self.module_name = self._detect_module_name()
+        self.module_path = self._detect_module_path()
+        self.sql_dir = SQL_DIR
+        self.connection = None
+        self._load_env()
+
+    def _detect_module_name(self):
+        """自动检测模块名称（如 {{ module.code }}）"""
+        return os.path.basename(self.module_dir)
+
+    def _detect_module_path(self):
+        """自动检测模块路径（如 {{ module.domain }}/{{ module.code }}）"""
+        parent_dir = os.path.dirname(self.module_dir)
+        parent_name = os.path.basename(parent_dir)
+        # 去掉前缀数字，如 "01.{{ module.domain }}" -> "{{ module.domain }}"
+        if "." in parent_name:
+            parent_name = parent_name.split(".", 1)[1]
+        return f"{parent_name}/{self.module_name}"
+
+    def _load_env(self):
+        """从 .env 文件加载环境变量"""
+        if os.path.exists(ENV_FILE):
+            try:
+                with open(ENV_FILE, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            key, value = line.split("=", 1)
+                            os.environ[key.strip()] = value.strip()
+            except Exception as e:
+                print(f"警告: 无法读取 .env 文件 - {e}")
+
+    def _get_db_config(self):
+        """获取数据库配置（优先从环境变量，否则使用默认值）"""
+        return {
+            "host": os.getenv("DB_HOST", "localhost"),
+            "port": int(os.getenv("DB_PORT", "3306")),
+            "user": os.getenv("DB_USER", "root"),
+            "password": os.getenv("DB_PASSWORD", "123456"),
+            "name": os.getenv("DB_NAME", "app_demo"),
+        }
+
+    def get_connection(self):
+        """获取数据库连接"""
+        if self.connection is None:
+            try:
+                import pymysql
+
+                db = self._get_db_config()
+                self.connection = pymysql.connect(
+                    host=db["host"],
+                    port=db["port"],
+                    user=db["user"],
+                    password=db["password"],
+                    database=db["name"],
+                    charset="utf8mb4",
+                    cursorclass=pymysql.cursors.DictCursor,
+                )
+            except ImportError:
+                print("错误: 未安装 pymysql 库")
+                print("请运行: pip install pymysql")
+                sys.exit(1)
+            except Exception as e:
+                print(f"错误: 数据库连接失败 - {e}")
+                sys.exit(1)
+        return self.connection
+
+    def execute_sql_file(self, sql_file):
+        """执行 SQL 文件"""
+        sql_path = os.path.join(self.sql_dir, sql_file)
+
+        if not os.path.exists(sql_path):
+            print(f"  [FAIL] 文件不存在: {sql_file}")
+            return False
+
+        print(f"  → 执行: {sql_file}")
+
+        try:
+            with open(sql_path, "r", encoding="utf-8") as f:
+                sql_content = f.read()
+
+            # 分割多个 SQL 语句
+            statements = []
+            current_stmt = []
+            in_delimiter = False
+            custom_delimiter = None
+
+            for line in sql_content.split("\n"):
+                # 处理自定义分隔符 (如存储过程)
+                if line.strip().upper().startswith("DELIMITER "):
+                    in_delimiter = True
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        custom_delimiter = parts[1]
+                    continue
+
+                # 跳过空行和注释
+                if not line.strip() or line.strip().startswith("--"):
+                    continue
+
+                current_stmt.append(line)
+
+                # 检查语句结束
+                if custom_delimiter:
+                    if custom_delimiter in line:
+                        stmt = (
+                            "\n".join(current_stmt)
+                            .replace(custom_delimiter, "")
+                            .strip()
+                        )
+                        if stmt:
+                            statements.append(stmt)
+                        current_stmt = []
+                        custom_delimiter = None
+                        in_delimiter = False
+                elif line.strip().endswith(";"):
+                    stmt = "\n".join(current_stmt).rstrip(";").strip()
+                    if stmt:
+                        statements.append(stmt)
+                    current_stmt = []
+
+            # 处理剩余内容
+            if current_stmt:
+                stmt = "\n".join(current_stmt).strip()
+                if stmt:
+                    statements.append(stmt)
+
+            # 执行所有语句
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                for stmt in statements:
+                    if stmt.strip():
+                        cursor.execute(stmt)
+
+            conn.commit()
+            print(f"  [OK] 成功: {sql_file}")
+            return True
+
+        except Exception as e:
+            print(f"  [FAIL] 失败: {sql_file}")
+            print(f"    错误: {e}")
+            return False
+
+    def exec_table_structure(self):
+        """执行表结构"""
+        print("\n╔════════════════════════════════════════╗")
+        print(f"║   执行表结构 ({self.module_name.upper()})          ║")
+        print("╚════════════════════════════════════════╝")
+        sql_file = f"{self.module_name}_exec.sql"
+        result = self.execute_sql_file(sql_file)
+
+        if result:
+            print("\n[OK] 表结构执行成功")
+        else:
+            print("\n⚠ 表结构执行失败")
+
+    def insert_mock_data(self):
+        """插入模拟数据"""
+        print("\n╔════════════════════════════════════════╗")
+        print(f"║   插入模拟数据 ({self.module_name.upper()})        ║")
+        print("╚════════════════════════════════════════╝")
+        sql_file = f"{self.module_name}_mock.sql"
+        result = self.execute_sql_file(sql_file)
+
+        if result:
+            print("\n[OK] 模拟数据插入成功")
+        else:
+            print("\n⚠ 模拟数据插入失败")
+
+    def exec_all(self):
+        """执行表结构 + 模拟数据"""
+        self.exec_table_structure()
+        print("\n" + "=" * 40)
+        self.insert_mock_data()
+
+    def show_menu(self):
+        """显示菜单"""
+        menu = f"""
+╔════════════════════════════════════════╗
+║  {self.module_name.upper()} 模块 - SQL执行工具           ║
+╠════════════════════════════════════════╣
+║  0. 表结构 + 模拟数据 [Default]        ║
+║  1. 执行表结构 (Exec Table Structure)  ║
+║  2. 插入模拟数据                       ║
+║  b. 返回上一级 (Back)                  ║
+╚════════════════════════════════════════╝
+"""
+        print(menu)
+
+    def run(self):
+        """运行交互式菜单"""
+        while True:
+            self.show_menu()
+            try:
+                choice = input("请选择 (Enter=默认选项0): ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n\n退出程序...")
+                break
+
+            if not choice:
+                choice = "0"
+
+            if choice == "1":
+                self.exec_table_structure()
+            elif choice == "2":
+                self.insert_mock_data()
+            elif choice == "0":
+                self.exec_all()
+            elif choice == "b":
+                print("返回上一级...")
+                break
+            else:
+                print(f"无效选项: {choice}")
+
+            # Skip pause
+            pass
+
+        # 关闭数据库连接
+        if self.connection:
+            self.connection.close()
+
+
+def main():
+    """主函数：支持交互式和命令行模式"""
+    runner = SqlRunner()
+
+    # 检查命令行参数
+    if len(sys.argv) > 1:
+        # 命令行模式
+        mode = sys.argv[1]
+        skip_confirm = "--yes" in sys.argv or "-y" in sys.argv
+
+        # 验证参数
+        if mode not in ["0", "1", "2"]:
+            print(f"错误: 无效的操作模式 '{mode}'")
+            print("有效选项: 0 (表结构+数据), 1 (仅表结构), 2 (仅数据)")
+            sys.exit(1)
+
+        # 显示操作信息
+        mode_names = {
+            "0": "表结构 + 模拟数据",
+            "1": "仅执行表结构",
+            "2": "仅插入模拟数据",
+        }
+
+        print("\n" + "=" * 50)
+        print("您即将执行:")
+        print(f"  模块: {runner.module_name.upper()} ({runner.module_path})")
+        print(f"  操作模式: {mode_names[mode]}")
+        print("=" * 50)
+
+        # [Non-interactive] Removed confirmation block as requested
+
+        # 执行操作
+        print()
+        if mode == "0":
+            runner.exec_all()
+        elif mode == "1":
+            runner.exec_table_structure()
+        elif mode == "2":
+            runner.insert_mock_data()
+
+        # 关闭数据库连接
+        if runner.connection:
+            runner.connection.close()
+    else:
+        # 交互式模式
+        runner.run()
+
+
+if __name__ == "__main__":
+    main()

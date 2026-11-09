@@ -1,0 +1,27 @@
+# {{ group_name | upper }} 枚举定义
+
+> **模块组**: {{ group_name }}（{{ module.domain_chinese }}）
+> **子表数量**: {{ sub_tables | length }}
+
+{% for st in sub_tables %}
+---
+
+## {{ st.module.name }}（{{ st.module.code }}）
+
+{% for field in st.fields %}{% if field.type == 'select' and field.options %}
+### {{ field.name }} — {{ field.label }}
+
+| Code | 含义 | 说明 |
+|------|------|------|
+{% for opt in field.options %}| {{ opt.value }} | {{ opt.label }} | — |
+{% endfor %}
+
+{% endif %}{% endfor %}
+### fileType — 附件类型（{{ st.module.name }}）
+
+| 值 | 含义 |
+|----|------|
+{% for ft in st.file_types %}| {{ ft.code }} | {{ ft.label }} |
+{% endfor %}
+
+{% endfor %}

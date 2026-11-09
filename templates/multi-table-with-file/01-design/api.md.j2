@@ -1,0 +1,125 @@
+---
+name: {{ module.code_pascal | upper }} API Design Standards (Cognitive Optimized)
+description: {{ module.name }} API 设计（多平级子表+附件模式）。
+---
+
+# {{ module.name }} API 设计
+
+## 1. 基础路径 (Base Path)
+
+{% for sub in sub_tables %}
+### 1.{{ loop.index }} {{ sub.module.name }}接口
+*   **Controller**: `{{ module.domain_pascal }}{{ sub.module.code_pascal }}Controller`
+*   **Path**: `/{{ module.domain }}/{{ module.code }}/{{ sub.module.code }}`
+
+{% endfor %}
+
+## 2. 接口列表
+
+{% for sub in sub_tables %}
+### 2.{{ loop.index }} {{ sub.module.name }}接口（含附件）
+
+| 接口描述 | 方法 | URL | 参数 | 返回 | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 分页查询 | GET | `/{{ sub.module.code }}/list` | `{{ sub.module.code_pascal }}Param` | `IPage<{{ sub.module.code_pascal }}VO>` | |
+| 详情查询 | GET | `/{{ sub.module.code }}/detail` | `id` | `{{ sub.module.code_pascal }}VO` | 响应含 fileList |
+| 新增 | POST | `/{{ sub.module.code }}/add` | `{{ sub.module.code_pascal }}Param` | `Boolean` | |
+| 修改 | POST | `/{{ sub.module.code }}/update` | `{{ sub.module.code_pascal }}Param` | `Boolean` | |
+| 删除 | POST | `/{{ sub.module.code }}/remove` | `ids` (List) | `Boolean` | 逻辑删除（is_deleted=1） |
+| 彻底删除 | POST | `/{{ sub.module.code }}/physical-remove` | `ids` (List) | `Boolean` | 物理删除（不可恢复） |
+{% if sub.module.has_batch_operations %}
+| 批量删除 | POST | `/{{ sub.module.code }}/batch-delete` | `ids` (List) | `Boolean` | 批量逻辑删除 |
+| 批量彻底删除 | POST | `/{{ sub.module.code }}/batch-physical-delete` | `ids` (List) | `Boolean` | 批量物理删除 |
+| 批量更新 | POST | `/{{ sub.module.code }}/batch-update` | `BatchUpdateParam` | `Boolean` | 批量修改指定字段 |
+{% endif %}
+| 导出 | GET | `/{{ sub.module.code }}/export` | `{{ sub.module.code_pascal }}Param` | `Blob` | Excel导出 |
+| 上传附件 | POST | `/{{ sub.module.code }}/upload` | `file` (multipart) | `Map` | 返回 url/fileName |
+| 附件列表 | GET | `/{{ sub.module.code }}/file/list` | `{{ sub.module.code }}Id` | `List<{{ sub.module.code_pascal }}FileVO>` | |
+| 删除附件 | POST | `/{{ sub.module.code }}/file/remove` | `ids` (List) | `Boolean` | |
+
+{% endfor %}
+
+## 3. 参数定义
+
+{% for sub in sub_tables %}
+### 3.{{ loop.index }} {{ sub.module.name }}参数
+
+**查询参数 (`{{ sub.module.code_pascal }}Param`)**:
+{% for field in sub.fields if field.filterable %}
+*   `{{ field.name }}`: {{ field.java_type }} ({{ field.label }})
+
+{% endfor %}
+
+**提交参数**:
+```java
+@Data
+@ApiModel("{{ sub.module.name }}参数")
+public class {{ sub.module.code_pascal }}Param {
+    private Long id;
+{% for field in sub.fields if not field.generated %}
+{% if field.required %}
+    @NotNull(message = "{{ field.label }}不能为空")
+{% endif %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+    /** 附件列表 */
+    private List<{{ sub.module.code_pascal }}FileParam> fileList;
+}
+```
+
+**附件参数 (`{{ sub.module.code_pascal }}FileParam`)**:
+```java
+@Data
+public class {{ sub.module.code_pascal }}FileParam {
+    private Long id;
+    private String fileType;
+    private String fileUrl;
+    private String fileName;
+}
+```
+
+{% endfor %}
+
+## 4. 返回对象
+
+{% for sub in sub_tables %}
+### 4.{{ loop.index }} {{ sub.module.name }}视图对象
+
+**`{{ sub.module.code_pascal }}VO`**:
+```java
+@Data
+public class {{ sub.module.code_pascal }}VO {
+{% for field in sub.fields %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+    /** 附件列表 */
+    private List<{{ sub.module.code_pascal }}FileVO> fileList;
+}
+```
+
+**`{{ sub.module.code_pascal }}FileVO`**:
+```java
+@Data
+public class {{ sub.module.code_pascal }}FileVO {
+    private Long id;
+    private String fileType;
+    private String fileUrl;
+    private String fileName;
+    private LocalDateTime createTime;
+}
+```
+
+{% endfor %}
+
+## 5. 附件类型定义
+
+{% for sub in sub_tables %}
+### 5.{{ loop.index }} {{ sub.module.name }}附件类型
+
+| Code | 含义 |
+| :--- | :--- |
+{% for ft in sub.file_types %}
+| `{{ ft.code }}` | {{ ft.label }} |
+{% endfor %}
+
+{% endfor %}

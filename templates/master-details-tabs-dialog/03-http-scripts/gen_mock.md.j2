@@ -1,0 +1,215 @@
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  【文档定位】
+    03-http-scripts/gen_mock.md — Postman/Apifox 集合生成器使用说明
+
+    本文档是 gen_mock.py / gen_mock.sh / gen_mock.ps1 三个脚本的统一说明入口。
+    面向对象：需要将 .http 文件导入 Postman / Apifox 进行可视化调试的开发者。
+
+  【设计思路】
+    1. 文档与脚本同级放置
+       说明文档与可执行脚本放在同一个目录（03-http-scripts/），
+       打开目录即能看到文档，降低找文档的成本。
+
+    2. 数据源唯一：.http 文件
+       .http 文件是开发阶段最贴近"真实请求"的表达方式，
+       以它为唯一数据源生成 Postman 集合，保证集合与接口定义始终一致，
+       避免手动维护两套文档产生的内容漂移。
+
+    3. 一键生成，无需配置
+       脚本自动推断模块名、路径和 .http 目录，
+       开发者只需执行一条命令，无需修改任何配置文件。
+       高级用户可通过 --dir / --name 参数覆盖默认值。
+
+    4. 带时间戳的输出文件
+       每次生成都产生新文件（{module}_{timestamp}.json），
+       保留历史版本，方便对比不同时间点的接口定义变化。
+
+    5. 轻量无外部依赖
+       gen_mock.py 只使用 Python 标准库（os / re / json / argparse），
+       不需要 pip 安装任何第三方包，降低使用门槛。
+
+    6. 工具定位：辅助调试，不参与自动化闭环
+       本工具仅在开发者需要导入 Postman/Apifox 时手动执行，
+       不被任何自动化脚本（L3、test_mock.py 等）自动调用。
+       自动化测试闭环请使用 test_mock.py，两者职责分离。
+
+  【与其他文件的关系】
+    gen_mock.md   ← 本文档，提供使用说明
+    gen_mock.py   ← 核心逻辑：解析 .http → 组装 Postman Collection JSON
+    gen_mock.sh   ← Linux/Mac 包装器：环境检查 → 透传参数 → 调用 py
+    gen_mock.ps1  ← Windows 包装器：环境检查 → 透传参数 → 调用 py
+
+    数据来源：../03-http/*.http
+    输出目录：../05-out/{module}_{YYYYMMDD_HHmmss}.json
+
+    上下游关系：
+      上游 → 开发者手动编写的 .http 文件（03-http/ 目录）
+      下游 → 生成的 JSON 文件导入 Postman / Apifox
+
+  【注意事项】
+    - 依赖：仅使用 Python 标准库，无需额外安装
+    - baseUrl 硬编码为 127.0.0.1:9072，如需修改请编辑 gen_mock.py
+    - 输出目录 ../05-out/ 不存在时脚本会自动创建
+    - 本工具不执行任何接口，只做格式转换
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+
+# {{ module.code.upper() }} 模块 - Postman 集合生成器
+
+> **用途**: 解析 `03-http/` 目录下的 `.http` 文件，自动生成 Postman / Apifox 可导入的 JSON 集合
+> **数据源**: `../03-http/*.http`
+> **输出位置**: `../05-out/{{ module.code }}_{YYYYMMDD_HHmmss}.json`
+> **支持平台**: Windows (PS1) · Linux/Mac (SH) · 直接 Python
+
+---
+
+## 快速开始
+
+### Windows
+
+```powershell
+cd 03-http-scripts
+.\gen_mock.ps1
+```
+
+### Linux/Mac
+
+```bash
+cd 03-http-scripts
+chmod +x gen_mock.sh
+./gen_mock.sh
+```
+
+### 直接运行 Python
+
+```bash
+python gen_mock.py
+```
+
+---
+
+## 生成结果
+
+| 项目 | 说明 |
+|------|------|
+| 文件格式 | Postman Collection v2.1 JSON |
+| 文件命名 | `{{ module.code }}_{YYYYMMDD_HHmmss}.json` |
+| 输出目录 | `../05-out/` （不存在时自动创建）|
+| 集合名称 | `{{ module.code.upper() }} API Collection`（可通过 `--name` 自定义）|
+
+---
+
+## 集合结构
+
+每个 `.http` 文件对应集合中的一个 **Folder**，Folder 内包含该文件定义的全部请求：
+
+```
+{{ module.code.upper() }} API Collection
+  ├─ Folder: list          ← 来自 01-list.http
+  ├─ Folder: add-or-edit   ← 来自 02-add-or-edit.http
+  ├─ Folder: detail        ← 来自 03-detail.http
+  └─ Folder: remove        ← 来自 04-remove.http
+```
+
+> 文件名中的数字前缀（`01-`、`02-` 等）会自动去除，Folder 名称更简洁。
+
+---
+
+## 命令行参数
+
+gen_mock.py 支持两个可选参数，通过包装器透传：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--dir <目录>` | 指定扫描的 `.http` 文件目录 | `../03-http` |
+| `--name <名称>` | 自定义生成的集合名称 | `{{ module.code.upper() }} API Collection` |
+
+### 使用示例
+
+```bash
+# 使用默认参数生成（最常用）
+python gen_mock.py
+
+# 自定义集合名称
+python gen_mock.py --name "{{ module.name }} 接口测试集合"
+
+# 指定其他 .http 文件目录
+python gen_mock.py --dir /path/to/http/files
+```
+
+```powershell
+# Windows 等价写法
+.\gen_mock.ps1 --name "{{ module.name }} 接口测试集合"
+```
+
+---
+
+## 导入 Postman
+
+1. 运行脚本，生成 `../05-out/{{ module.code }}_{timestamp}.json`
+2. 打开 Postman → 点击左上角 **Import**
+3. 选择生成的 JSON 文件 → **Import**
+4. 集合出现在左侧 Collections 面板
+5. 在 **Environments** 中配置变量：
+   - `baseUrl` → `http://127.0.0.1:9072/api/layer/v1/sys-service/{{ module.domain }}/{{ module.code }}`
+   - `token` → 你的登录令牌
+
+---
+
+## 导入 Apifox
+
+1. 打开 Apifox → 项目设置 → **导入数据**
+2. 选择 **Postman** 格式 → 上传生成的 JSON 文件
+3. 完成导入后在「环境管理」中配置 `baseUrl` 和 `token`
+
+---
+
+## .http 文件格式说明
+
+gen_mock.py 解析的 `.http` 文件须遵循以下格式：
+
+```http
+### 1. 查询列表
+GET {{ '{{' }}baseUrl{{ '}}' }}/list?pageNum=1&pageSize=10
+Authorization: Bearer {{ '{{' }}token{{ '}}' }}
+
+### 2. 新增记录
+POST {{ '{{' }}baseUrl{{ '}}' }}/add
+Authorization: Bearer {{ '{{' }}token{{ '}}' }}
+Content-Type: application/json
+
+{
+  "fieldName": "测试值"
+}
+```
+
+| 语法元素 | 说明 |
+|---------|------|
+| `###` | 请求分隔符，`###` 后的文字作为请求名称 |
+| `@key=value` | 变量定义，脚本解析时载入 |
+| `{{ '{{' }}baseUrl{{ '}}' }}` | Postman 变量占位符，导入后在 Environment 中配置 |
+| 空行 | 分隔请求头与请求体 |
+
+---
+
+## 与 test_mock.py 的区别
+
+| 维度 | gen_mock.py | test_mock.py |
+|------|-------------|--------------|
+| 作用 | 格式转换（.http → JSON） | 实际执行接口请求 |
+| 是否发起 HTTP 请求 | ❌ 否 | ✅ 是 |
+| 调用方式 | 手动 | 手动 / 自动化闭环 |
+| 输出 | Postman 集合 JSON 文件 | 控制台测试报告 + 日志文件 |
+| 依赖 Python 包 | 仅标准库 | 需要 `requests` |
+
+---
+
+## 依赖安装
+
+gen_mock.py **无需安装任何第三方依赖**，仅使用 Python 标准库：
+
+```bash
+# 无需执行任何安装命令，有 Python 3.x 即可直接运行
+python gen_mock.py
+```

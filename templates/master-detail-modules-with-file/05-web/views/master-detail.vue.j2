@@ -1,0 +1,132 @@
+<template>
+  <div class="{{ master_module.code }}-detail edit-container">
+    <el-scrollbar>
+      <G-back title="{{ master_module.name }}详情" @go-back="cancel"></G-back>
+
+      <el-card class="mb-20">
+        <template #header>
+          <div class="card-header">
+            <span>基本信息</span>
+          </div>
+        </template>
+        <el-descriptions :column="2" border>
+{% for field in master_fields %}{% if not field.generated %}
+{% if field.type == 'select' and field.options %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} get{{ field.name_pascal }}Label(detail.{{ field.name }}) {{ '}}' }}</el-descriptions-item>
+{% elif field.type in ['date-year', 'date-month', 'date', 'datetime'] %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} formatDateField(detail.{{ field.name }}, '{{ field.type }}') {{ '}}' }}</el-descriptions-item>
+{% else %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} detail.{{ field.name }} {{ '}}' }}</el-descriptions-item>
+{% endif %}
+{% endif %}{% endfor %}
+          <el-descriptions-item label="创建时间">{{ '{{' }} formatDateField(detail.createTime, 'datetime') {{ '}}' }}</el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
+{% if has_master_file %}
+      <el-card v-if="detail.fileList && detail.fileList.length > 0" class="mb-20">
+        <template #header>
+          <div class="card-header">
+            <span>附件材料</span>
+          </div>
+        </template>
+        <div class="file-list">
+          <div v-for="(file, index) in detail.fileList" :key="index" class="file-item">
+            <el-icon style="margin-right: 6px; vertical-align: middle;"><Document /></el-icon>
+            <el-link :href="file.fileUrl" target="_blank" type="primary">{{ '{{' }} file.fileName {{ '}}' }}</el-link>
+          </div>
+        </div>
+      </el-card>
+{% endif %}
+
+      <div style="height: 100px"></div>
+    </el-scrollbar>
+  </div>
+</template>
+
+<script setup>
+import { reactive, onMounted, toRefs } from "vue";
+import { Document } from "@element-plus/icons-vue";
+import GBack from "@/components/global/system/G-back.vue";
+import api from "@/service/{{ module.domain }}/{{ group_code }}.js";
+
+const props = defineProps({
+  id: String
+});
+const emit = defineEmits(["call-back-data"]);
+
+const state = reactive({
+  detail: {}
+});
+const { detail } = toRefs(state);
+
+{% for field in master_fields %}{% if field.type == 'select' and field.options %}
+const {{ field.name }}Map = {
+{% for opt in field.options %}  '{{ opt.value }}': '{{ opt.label }}',
+{% endfor %}
+}
+const get{{ field.name_pascal }}Label = (val) => {
+  return {{ field.name }}Map[val] || val
+}
+{% endif %}{% endfor %}
+{% if has_master_file %}
+{% if master_module.file_types and master_module.file_types | length > 0 %}
+const fileTypeMap = {
+{% for ft in master_module.file_types %}  '{{ ft.code }}': '{{ ft.label }}',
+{% endfor %}
+}
+{% endif %}
+const getFileTypeLabel = (val) => {
+{% if master_module.file_types and master_module.file_types | length > 0 %}
+  return fileTypeMap[val] || val
+{% else %}
+  return val || '附件'
+{% endif %}
+}
+{% endif %}
+
+const formatDateField = (value, type) => {
+  if (value === null || value === undefined || value === '') return ''
+  const s = String(value).replace('T', ' ').split('.')[0].split('+')[0].trimEnd()
+  if (type === 'date-year') return s.slice(0, 4)
+  if (type === 'date-month') return s.slice(0, 7)
+  if (type === 'date') return s.slice(0, 10)
+  if (type === 'datetime') return s.slice(0, 19)
+  return value
+}
+
+const getDetail = async () => {
+  const res = await api.getMasterDetail(props.id);
+  state.detail = res || {};
+{% if has_master_file %}
+  // 加载附件列表
+  try {
+    const files = await api.getMasterFileList(props.id);
+    state.detail.fileList = files || [];
+  } catch (e) { state.detail.fileList = []; }
+{% endif %}
+};
+
+const cancel = () => emit("call-back-data", 0);
+
+onMounted(() => getDetail());
+</script>
+
+<style lang="scss" scoped>
+.{{ master_module.code }}-detail {
+  padding: 20px;
+  .mb-20 {
+    margin-bottom: 20px;
+  }
+  .file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    .file-item {
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+    }
+  }
+}
+</style>

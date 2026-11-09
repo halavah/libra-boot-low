@@ -1,0 +1,58 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.math.BigDecimal;
+{% if has_date_field %}import java.time.LocalDate;
+{% endif %}import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * {{ module.name }} 视图对象（含附件列表）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@Schema(description = "{{ module.name }}VO")
+public class {{ module.domain_pascal }}{{ module.code_pascal }}VO {
+
+    @Schema(description = "主键ID")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long id;
+
+{% for field in fields %}{% if not field.generated %}
+    @Schema(description = "{{ field.label }}")
+{% if field.type == 'date' %}    @JsonFormat(pattern = "yyyy-MM-dd")
+{% elif field.type == 'datetime' %}    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+{% endif %}    private {{ field.java_type }} {{ field.name }};
+
+{% endif %}{% endfor %}
+    @Schema(description = "附件列表")
+    private List<{{ module.domain_pascal }}{{ module.code_pascal }}FileVO> fileList;
+
+    @Schema(description = "创建部门")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long createDept;
+
+    @Schema(description = "创建时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime createTime;
+
+    @Schema(description = "创建人")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long createUser;
+
+    @Schema(description = "更新时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime updateTime;
+
+    @Schema(description = "更新人")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long updateUser;
+}

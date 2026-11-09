@@ -1,0 +1,155 @@
+{%- set lb = '{{' -%}
+{%- set rb = '}}' -%}
+# 硬编码说明: *_url 中的 localhost:9072 为本地开发服务地址，按需修改
+# 明细表接口合集 — 共 {{ detail_modules | length }} 个明细表，每个 CRUD + 导出（6 段）
+@test_master_id = 1000001
+{% for dm in detail_modules %}
+@dm{{ loop.index0 }}_url = http://localhost:9072{{ dm.api_path }}
+@test_dm{{ loop.index0 }}_id = {{ (loop.index + 1) * 1000000 + 1 }}
+{% endfor %}
+
+{% for dm in detail_modules %}
+# ================================================================
+# === 明细表{{ loop.index }}：{{ dm.name }} ===
+# ================================================================
+
+### ============================================================
+### DM{{ loop.index }}-1. 分页查询（基础）
+### ============================================================
+GET {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/list?current=1&size=10
+Content-Type: application/json
+
+### DM{{ loop.index }}-2. 分页查询（按主表ID过滤）
+GET {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/list?current=1&size=10&{{ dm.master_fk }}={{ lb }}test_master_id{{ rb }}{% for field in dm.fields %}{% if field.filterable %}{% if field.type == 'input' or field.type == 'textarea' %}&{{ field.name }}={{ field.label }}1{% elif field.type == 'select' and field.options %}&{{ field.name }}={{ field.options[0].value }}{% elif field.type == 'date-year' %}&{{ field.name }}=2025{% elif field.type == 'date-month' %}&{{ field.name }}=2025-01{% elif field.type == 'number' %}&{{ field.name }}=10{% elif field.type == 'date' or field.type == 'datetime' %}&{{ field.name }}Begin=2025-01-01&{{ field.name }}End=2025-12-31{% endif %}{% endif %}{% endfor %}
+Content-Type: application/json
+
+### ============================================================
+### DM{{ loop.index }}-3. 查询详情
+### ============================================================
+GET {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/detail?id={{ lb }}test_dm{{ loop.index0 }}_id{{ rb }}
+Content-Type: application/json
+
+### ============================================================
+### DM{{ loop.index }}-4. 新增
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/add
+Content-Type: application/json
+
+{
+    "{{ dm.master_fk }}": "{{ lb }}test_master_id{{ rb }}",
+{% for field in dm.fields %}
+{% if field.type == 'input' or field.type == 'textarea' %}
+    "{{ field.name }}": "{{ field.label }}测试",
+{% elif field.type == 'select' and field.options %}
+    "{{ field.name }}": {{ field.options[0].value }},
+{% elif field.type == 'date-year' %}
+    "{{ field.name }}": 2025,
+{% elif field.type == 'date-month' %}
+    "{{ field.name }}": "2025-06",
+{% elif field.type == 'number' %}
+    "{{ field.name }}": 100,
+{% elif field.type == 'decimal' %}
+    "{{ field.name }}": 99.99,
+{% elif field.type == 'date' %}
+    "{{ field.name }}": "2025-06-01",
+{% elif field.type == 'datetime' %}
+    "{{ field.name }}": "2025-06-01 10:00:00",
+{% else %}
+    "{{ field.name }}": null,
+{% endif %}
+{% endfor %}
+    "_comment": "{{ dm.name }}新增"
+}
+
+### ============================================================
+### DM{{ loop.index }}-5. 修改
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/update
+Content-Type: application/json
+
+{
+    "id": "{{ lb }}test_dm{{ loop.index0 }}_id{{ rb }}",
+    "{{ dm.master_fk }}": "{{ lb }}test_master_id{{ rb }}",
+{% for field in dm.fields %}
+{% if field.type == 'input' or field.type == 'textarea' %}
+    "{{ field.name }}": "{{ field.label }}已修改",
+{% elif field.type == 'select' and field.options %}
+    "{{ field.name }}": {{ field.options[0].value }},
+{% elif field.type == 'date-year' %}
+    "{{ field.name }}": 2025,
+{% elif field.type == 'date-month' %}
+    "{{ field.name }}": "2025-09",
+{% elif field.type == 'number' %}
+    "{{ field.name }}": 200,
+{% elif field.type == 'decimal' %}
+    "{{ field.name }}": 88.88,
+{% elif field.type == 'date' %}
+    "{{ field.name }}": "2025-09-01",
+{% elif field.type == 'datetime' %}
+    "{{ field.name }}": "2025-09-01 14:00:00",
+{% else %}
+    "{{ field.name }}": null,
+{% endif %}
+{% endfor %}
+    "_comment": "{{ dm.name }}修改"
+}
+
+### ============================================================
+### DM{{ loop.index }}-6. 删除
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/remove
+Content-Type: application/json
+
+["{{ lb }}test_dm{{ loop.index0 }}_id{{ rb }}"]
+
+### ============================================================
+### DM{{ loop.index }}-7. 导出
+### ============================================================
+{% set export_params = [] %}
+{% for field in dm.fields %}{% if field.filterable %}{% if field.type == 'input' or field.type == 'textarea' %}{% set _ = export_params.append(field.name + '=' + field.label + '1') %}{% elif field.type == 'select' and field.options %}{% set _ = export_params.append(field.name + '=' + (field.options[0].value | string)) %}{% elif field.type == 'date-year' %}{% set _ = export_params.append(field.name + '=2025') %}{% endif %}{% endif %}{% endfor %}
+GET {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/export{% if export_params %}?{{ export_params | join('&') }}{% endif %}
+Content-Type: application/json
+
+### ============================================================
+### DM{{ loop.index }}-8. 彻底删除（物理删除）
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/physical-remove
+Content-Type: application/json
+
+["{{ lb }}test_dm{{ loop.index0 }}_id{{ rb }}"]
+
+{% if module.has_batch_operations %}
+### ============================================================
+### DM{{ loop.index }}-9. 批量删除（逻辑删除）
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/batch-delete
+Content-Type: application/json
+
+[{{ (loop.index + 1) * 1000000 + 1 }}, {{ (loop.index + 1) * 1000000 + 2 }}, {{ (loop.index + 1) * 1000000 + 3 }}]
+
+### ============================================================
+### DM{{ loop.index }}-10. 批量彻底删除（物理删除）
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/batch-physical-delete
+Content-Type: application/json
+
+[{{ (loop.index + 1) * 1000000 + 1 }}, {{ (loop.index + 1) * 1000000 + 2 }}]
+
+### ============================================================
+### DM{{ loop.index }}-11. 批量更新
+### ============================================================
+POST {{ lb }}dm{{ loop.index0 }}_url{{ rb }}/batch-update
+Content-Type: application/json
+
+{
+  "ids": [{{ (loop.index + 1) * 1000000 + 1 }}, {{ (loop.index + 1) * 1000000 + 2 }}],
+  "data": {
+{% for f in dm.batch_operations["update"]["fields"] %}
+    "{{ f.name }}": {% if f.type == 'select' %}1{% elif f.type == 'date' %}"2025-01-01"{% else %}"示例值"{% endif %}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  }
+}
+{% endif %}
+
+{% endfor %}

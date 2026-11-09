@@ -1,0 +1,102 @@
+---
+name: {{ module.code_pascal | upper }} UI Design Standards (Cognitive Optimized)
+description: {{ module.name }} UI 设计（主子表+附件模式）。
+---
+
+# {{ module.code_pascal | upper }} 页面设计 (UI)
+
+> **模块**: {{ module.name }}（{{ module.domain_chinese }}）
+> **应用**: `{{ module.domain }}/{{ module.code }}`
+
+## 1. 列表页 (`index.vue`)
+
+### 1.1 搜索区 (FormDataInfo) — 主表字段
+| Label | Prop | Type | Span | 备注 |
+| :--- | :--- | :--- | :--- | :--- |
+{% for field in master_fields if field.filterable %}
+| {{ field.label }} | `{{ field.name }}` | {{ 'select' if field.type == 'select' else ('year' if field.type == 'date-year' else 'input') }} | 6 | |
+{% endfor %}
+
+### 1.2 表格列 (OriginHeader) — 主表字段
+{% set list_fields = master_fields | selectattr('show_in_list') | list %}
+{% for field in list_fields %}
+{{ loop.index }}.  **{{ field.label }}**: `{{ field.name }}`{% if loop.last %} (Link to Detail){% endif %}
+
+{% endfor %}
+{{ list_fields | length + 1 }}.  **操作**: `operateColumn` (Detail, Edit, Delete)
+
+## 2. 表单页 (`{{ module.code }}-add-or-edit.vue`)
+
+### 2.1 布局
+*   上半部分：主表表单（`span: 12` 双列）
+*   下半部分：子表 Grid + 附件上传
+
+### 2.2 主表字段
+{% for field in master_fields if not field.generated %}
+*   {{ field.label }} ({{ field.vue_component | split('.') | first }}){% if field.required %} [必填]{% endif %}
+
+{% endfor %}
+
+### 2.3 子表 Grid
+*   **新增弹窗**: 点击「新增」按钮打开子表表单弹窗
+*   **编辑弹窗**: 点击行「编辑」按钮打开子表表单弹窗
+
+### 2.4 子表弹窗字段
+{% for field in detail_fields if not field.generated %}
+*   {{ field.label }} ({{ field.vue_component | split('.') | first }}){% if field.required %} [必填]{% endif %}
+
+{% endfor %}
+
+### 2.5 附件上传（子表弹窗内）
+{% for ft in module.detail.file_types %}
+*   **{{ ft.label }}** (`{{ ft.code }}`): el-upload，支持多文件
+
+{% endfor %}
+
+## 3. 详情页 (`{{ module.code }}-detail.vue`)
+
+### 3.1 主表区域
+*   使用 `el-descriptions` (Bordered)
+*   展示 {{ master_fields | rejectattr('generated') | list | length }} 个主表字段
+
+### 3.2 子表区域
+*   使用 `el-table` 展示子表列表（只读）
+*   点击行可展开查看附件列表
+
+### 3.3 附件展示
+*   子表每行展开后显示附件预览列表
+*   按 fileType 分组显示
+
+## 4. 附件上传规范
+
+### 4.1 上传组件
+{% for ft in module.detail.file_types %}
+**{{ ft.label }}** (`{{ ft.code }}`):
+```vue
+<el-upload
+  :action="uploadUrl"
+  :on-success="(res) => handleUploadSuccess(res, '{{ ft.code }}')"
+  :file-list="fileList.{{ ft.code }}"
+  multiple
+>
+  <el-button type="primary">点击上传</el-button>
+</el-upload>
+```
+{% endfor %}
+
+### 4.2 附件类型
+| fileType | 说明 | 限制 |
+| :--- | :--- | :--- |
+{% for ft in module.detail.file_types %}
+| `{{ ft.code }}` | {{ ft.label }} | jpg/png/pdf, 最大 10MB |
+{% endfor %}
+
+## 5. 交互流程
+
+```
+列表页 → 点击「新增」→ 表单页（主表 + 子表Grid）
+                      ↓
+              点击子表「新增」→ 子表弹窗（含附件上传）
+                      ↓
+              填写完毕 → 返回表单页 → 提交
+```

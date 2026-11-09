@@ -1,0 +1,307 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.service.impl;
+
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}Param;
+{% if module.has_batch_operations %}import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam;
+{% endif %}import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po.Biz{{ module.domain_pascal }}{{ module.code_pascal }};
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.mapper.{{ module.domain_pascal }}{{ module.code_pascal }}Mapper;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.service.I{{ module.domain_pascal }}{{ module.code_pascal }}Service;
+import {{ project.group }}.layer.bis.utils.CurrentUserUtils;
+import {{ project.group }}.layer.task.dataobj.UserCommon;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.BeanUtils;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * {{ module.name }} 服务实现（主表）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Slf4j
+@Service
+public class {{ module.domain_pascal }}{{ module.code_pascal }}ServiceImpl extends ServiceImpl<{{ module.domain_pascal }}{{ module.code_pascal }}Mapper, Biz{{ module.domain_pascal }}{{ module.code_pascal }}> implements I{{ module.domain_pascal }}{{ module.code_pascal }}Service {
+
+    @Resource
+    private CurrentUserUtils currentUserUtils;
+
+    @Override
+    public IPage<{{ module.domain_pascal }}{{ module.code_pascal }}VO> selectPageVo({{ module.domain_pascal }}{{ module.code_pascal }}Param param) {
+        Page<{{ module.domain_pascal }}{{ module.code_pascal }}VO> page = new Page<>(param.getCurrent(), param.getSize());
+        return baseMapper.selectPageVo(page, param);
+    }
+
+    @Override
+    public {{ module.domain_pascal }}{{ module.code_pascal }}VO selectVoById(Long id) {
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = this.getById(id);
+        if (po == null) {
+            return null;
+        }
+        {{ module.domain_pascal }}{{ module.code_pascal }}VO vo = new {{ module.domain_pascal }}{{ module.code_pascal }}VO();
+        BeanUtils.copyProperties(po, vo);
+        return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean add({{ module.domain_pascal }}{{ module.code_pascal }}Param param) {
+        UserCommon user = currentUserUtils.getUser();
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = new Biz{{ module.domain_pascal }}{{ module.code_pascal }}();
+        BeanUtils.copyProperties(param, po);
+        po.setCreateUser(user.getUserId());
+        po.setCreateDept(user.getDeptId() != null ? user.getDeptId() : 0L);
+        po.setCreateTime(LocalDateTime.now());
+        po.setUpdateUser(user.getUserId());
+        po.setUpdateTime(LocalDateTime.now());
+        po.setIsDeleted(0);
+        this.save(po);
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean update({{ module.domain_pascal }}{{ module.code_pascal }}Param param) {
+        UserCommon user = currentUserUtils.getUser();
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = new Biz{{ module.domain_pascal }}{{ module.code_pascal }}();
+        BeanUtils.copyProperties(param, po);
+        po.setUpdateUser(user.getUserId());
+        po.setUpdateTime(LocalDateTime.now());
+        this.updateById(po);
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean remove(List<Long> ids) {
+        return this.logicalDeleteByIds(ids);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean logicalDeleteByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, ids)
+                .set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getIsDeleted, 1)
+                .set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        if (user != null) {
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+        }
+        return updateWrapper.update();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean physicalRemoveByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        baseMapper.physicalDeleteByIds(ids);
+        return true;
+    }
+
+    @Override
+    public void export({{ module.domain_pascal }}{{ module.code_pascal }}Param param, HttpServletResponse response) {
+        // 查询全部数据（不分页）
+        Page<{{ module.domain_pascal }}{{ module.code_pascal }}VO> page = new Page<>(1, Long.MAX_VALUE);
+        List<{{ module.domain_pascal }}{{ module.code_pascal }}VO> dataList = baseMapper.selectPageVo(page, param).getRecords();
+
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("{{ module.name }}");
+
+            // 创建表头
+            Row headerRow = sheet.createRow(0);
+{% for field in fields %}
+            headerRow.createCell({{ loop.index0 }}).setCellValue("{{ field.label }}");
+{% endfor %}
+            headerRow.createCell({{ fields | length }}).setCellValue("创建时间");
+
+            // 填充数据
+            int rowNum = 1;
+            for ({{ module.domain_pascal }}{{ module.code_pascal }}VO data : dataList) {
+                Row row = sheet.createRow(rowNum++);
+{% for field in fields %}
+                row.createCell({{ loop.index0 }}).setCellValue(formatValue(data.get{{ field.name_pascal }}()));
+{% endfor %}
+                row.createCell({{ fields | length }}).setCellValue(formatDateTime(data.getCreateTime()));
+            }
+
+            // 设置响应头
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setCharacterEncoding("utf-8");
+            String fileName = URLEncoder.encode("{{ module.name }}" + System.currentTimeMillis(), StandardCharsets.UTF_8.name());
+            response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+
+            workbook.write(response.getOutputStream());
+        } catch (IOException e) {
+            log.error("导出失败: {}", e.getMessage(), e);
+            throw new RuntimeException("导出失败", e);
+        }
+    }
+
+    private String formatValue(Object value) {
+        if (value == null) return "";
+        return String.valueOf(value);
+    }
+
+    private String formatDateTime(LocalDateTime time) {
+        if (time == null) return "";
+        return time.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+{% if module.has_status_toggles %}
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean toggleStatus(Long id, String field, Integer value) {
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = this.getById(id);
+        if (po == null) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+
+        // 根据字段名设置值
+{% for toggle in module.status_toggles %}
+        if ("{{ toggle.field }}".equals(field)) {
+            po.set{{ toggle.field_pascal }}(value);
+        }
+{% endfor %}
+
+        if (user != null) {
+            po.setUpdateUser(user.getUserId());
+        }
+        po.setUpdateTime(LocalDateTime.now());
+        return this.updateById(po);
+    }
+{% endif %}
+{% if module.has_batch_operations %}
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, ids)
+                .set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getIsDeleted, 1)
+                .set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        if (user != null) {
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+        }
+        return updateWrapper.update();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchUpdate({{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam param) {
+        if (param.getIds() == null || param.getIds().isEmpty()) {
+            return false;
+        }
+        // 兼容旧接口：data 为空时回退到 field/value 单字段模式
+        if (param.getData() == null || param.getData().isEmpty()) {
+            return batchUpdate(param.getIds(), param.getField(), param.getValue());
+        }
+        // 多字段批量更新
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, param.getIds());
+        for (Map.Entry<String, Object> entry : param.getData().entrySet()) {
+            String fieldName = entry.getKey();
+            Object val = entry.getValue();
+            if (val == null) continue;
+{% for f in module.batch_operations["update"]["fields"] %}
+            if ("{{ f.name }}".equals(fieldName)) {
+{% if f.java_type == 'Integer' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof Integer ? (Integer) val : Integer.parseInt(val.toString()));
+{% elif f.java_type == 'Long' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof Long ? (Long) val : Long.parseLong(val.toString()));
+{% elif f.java_type == 'java.math.BigDecimal' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof java.math.BigDecimal ? (java.math.BigDecimal) val : new java.math.BigDecimal(val.toString()));
+{% elif f.java_type == 'java.time.LocalDate' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof java.time.LocalDate ? (java.time.LocalDate) val : java.time.LocalDate.parse(val.toString()));
+{% elif f.java_type == 'java.time.LocalDateTime' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof java.time.LocalDateTime ? (java.time.LocalDateTime) val : java.time.LocalDateTime.parse(val.toString()));
+{% else %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val.toString());
+{% endif %}
+            }
+{% endfor %}
+        }
+        if (user != null) {
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+        }
+        updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        return updateWrapper.update();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchUpdate(List<Long> ids, String field, Object value) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, ids);
+            // 根据字段名设置值（白名单校验已在Controller层完成）
+{% for f in module.batch_operations["update"]["fields"] %}
+            if ("{{ f.field }}".equals(field)) {
+{% if f.java_type is defined %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.field_pascal }}, ({% if f.java_type == 'Integer' %}Integer{% elif f.java_type == 'Long' %}Long{% elif f.java_type == 'String' %}String{% elif f.java_type == 'LocalDate' %}LocalDate{% else %}Object{% endif %}) value);
+{% else %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.field_pascal }}, (Integer) value);
+{% endif %}
+            }
+{% endfor %}
+            if (user != null) {
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+            }
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        return updateWrapper.update();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchToggle(List<Long> ids, String field, Integer value) {
+        return this.batchUpdate(ids, field, value);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchPhysicalDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        baseMapper.physicalDeleteByIds(ids);
+        return true;
+    }
+{% endif %}
+}

@@ -1,0 +1,171 @@
+# ============================================================
+# 脚本名称: run_page_test.ps1
+# 作用: 生成测试脚本 + 执行 Playwright 测试（Windows 版）
+#
+# 【前置条件】
+#   1. 全局安装 Playwright: npm install -g @playwright/test
+#   2. 安装浏览器驱动: npx playwright install chromium
+#   3. Dev Server 已启动（默认 http://localhost:7080）
+#      或传入 -AutoDev 参数由本脚本自动启动
+#
+# 【用法】
+#   .\run_page_test.ps1              # 默认模式（手动启动 dev server）
+#   .\run_page_test.ps1 -AutoDev     # 自动启动 dev server
+#
+# 【输出】
+#   ..\05-out\{RUN_ID}\              - 本次运行的所有截图和报告
+#   ..\05-out\{RUN_ID}\html\         - Playwright HTML 报告
+#   ..\05-out\{RUN_ID}\results.json  - JSON 结果
+#   ..\05-out\{RUN_ID}\test_summary.md- 测试摘要
+# ============================================================
+
+param(
+    [switch]$AutoDev
+)
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$DevProcess = $null
+
+# ---- 生成本次运行 ID（时间戳） ----
+$RunId = "test_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+$env:TEST_RUN_ID = $RunId
+
+# ---- 加载 .env ----
+$EnvFile = Join-Path $ScriptDir "..\..\..\..\..\..\.claude\.env"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith('#')) {
+            $idx = $line.IndexOf('=')
+            if ($idx -gt 0) {
+                $k = $line.Substring(0, $idx).Trim()
+                $v = $line.Substring($idx + 1).Trim()
+                [System.Environment]::SetEnvironmentVariable($k, $v, 'Process')
+            }
+        }
+    }
+}
+
+$BaseUrl = if ($env:BASE_URL) { $env:BASE_URL } else { "http://localhost:7080" }
+$OutDir  = Join-Path $ScriptDir "..\05-out\$RunId"
+
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "  {{ module.code.upper() }} 模块 - Page Test Runner" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "  Base URL : $BaseUrl"
+Write-Host "  Run ID   : $RunId"
+Write-Host "  Output   : $OutDir"
+Write-Host "==========================================" -ForegroundColor Cyan
+
+# ---- 可选: 自动启动 Dev Server ----
+if ($AutoDev) {
+    Write-Host ""
+    Write-Host "[auto-dev] 正在启动前端 Dev Server..." -ForegroundColor Yellow
+
+    $WebDir = Resolve-Path (Join-Path $ScriptDir "..\..\..\..\..\app-web") -ErrorAction SilentlyContinue
+    if (-not $WebDir) {
+        Write-Host "Error: app-web 目录未找到" -ForegroundColor Red
+        exit 1
+    }
+
+    $DevProcess = Start-Process -FilePath "npm" -ArgumentList "run dev" `
+        -WorkingDirectory $WebDir -PassThru -NoNewWindow
+
+    Write-Host "[auto-dev] PID=$($DevProcess.Id)，等待就绪..."
+    $Port = ($BaseUrl -split ':')[-1]
+    $ready = $false
+    for ($i = 1; $i -le 60; $i++) {
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect('127.0.0.1', [int]$Port)
+            $tcp.Close()
+            Write-Host "[auto-dev] [OK] Dev Server 已就绪 (${i}s)" -ForegroundColor Green
+            $ready = $true
+            break
+        } catch { Start-Sleep 1 }
+    }
+    if (-not $ready) {
+        Write-Host "[auto-dev] [WARN]  Dev Server 启动超时，继续执行..." -ForegroundColor Yellow
+    }
+}
+
+# ---- 生成测试脚本 ----
+Write-Host ""
+Write-Host "[gen] 生成 index.test.js..." -ForegroundColor Green
+python3 (Join-Path $ScriptDir "run_page_test.py") --force
+
+# ---- 创建本次运行输出目录 ----
+if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
+
+# ---- 执行测试 ----
+Write-Host ""
+Write-Host "[playwright] 执行测试..." -ForegroundColor Green
+$ConfigPath = Join-Path $ScriptDir "playwright.config.js"
+$env:NODE_PATH = (npm root -g)
+npx playwright test --config="$ConfigPath"
+
+# ---- 修复 HTML 报告为亮色主题 ----
+$HtmlReport = Join-Path $OutDir "index.html"
+if (Test-Path $HtmlReport) {
+    Write-Host ""
+    Write-Host "[patch-html] 修复 HTML 报告亮色主题..." -ForegroundColor Green
+    python3 (Join-Path $ScriptDir "run_page_test.py") --patch-html $HtmlReport --theme light
+}
+
+# ---- 生成测试摘要 ----
+Write-Host ""
+Write-Host "[summary] 生成测试摘要..." -ForegroundColor Green
+$ResultsFile = Join-Path $OutDir "results.json"
+$SummaryFile = Join-Path $OutDir "test_summary.md"
+if (Test-Path $ResultsFile) {
+    python3 -c @"
+import json, sys
+from pathlib import Path
+
+run_id       = '$RunId'
+results_file = Path(r'$ResultsFile')
+summary_file = Path(r'$SummaryFile')
+
+with open(results_file, encoding='utf-8') as f:
+    data = json.load(f)
+
+stats   = data.get('stats', {})
+total   = stats.get('expected', 0)
+passed  = sum(1 for s in data.get('suites', []) for spec in s.get('specs', []) if spec.get('ok'))
+failed  = stats.get('unexpected', 0)
+skipped = stats.get('skipped', 0)
+
+lines = [
+    f'# 测试摘要 — {run_id}', '',
+    f'**模块**: {{ module.name }} ({{ module.code }})', '',
+    f'| 项目 | 数量 |', f'|------|------|',
+    f'| 总计 | {total} |', f'| [OK] 通过 | {passed} |',
+    f'| [FAIL] 失败 | {failed} |', f'| 跳过 | {skipped} |',
+    '', '## 详细结果', '',
+]
+for suite in data.get('suites', []):
+    t = suite.get('title', '')
+    if t:
+        lines += [f'### {t}', '']
+    for spec in suite.get('specs', []):
+        icon = '[OK]' if spec.get('ok') else '[FAIL]'
+        lines.append(f'- {icon} {spec.get("title", "")}')
+    lines.append('')
+summary_file.write_text('\n'.join(lines), encoding='utf-8')
+print(f'[summary] [OK] 已写入: {summary_file}')
+"@
+}
+
+Write-Host ""
+Write-Host "==========================================" -ForegroundColor Green
+Write-Host "  测试完成！" -ForegroundColor Green
+Write-Host "  截图目录: $OutDir"
+Write-Host "  HTML 报告: $OutDir\index.html"
+Write-Host "  测试摘要: $OutDir\test_summary.md"
+Write-Host "==========================================" -ForegroundColor Green
+
+# ---- 清理 Dev Server ----
+if ($DevProcess) {
+    Write-Host "[auto-dev] 关闭 Dev Server..." -ForegroundColor Yellow
+    Stop-Process -Id $DevProcess.Id -Force -ErrorAction SilentlyContinue
+}

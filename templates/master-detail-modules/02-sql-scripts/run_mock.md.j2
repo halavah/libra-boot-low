@@ -1,0 +1,212 @@
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  【文档定位】
+    02-sql-scripts/run_mock.md — 数据库初始化脚本套件使用说明
+
+    本文档是 run_mock.py / run_mock.sh / run_mock.ps1 三个脚本的统一说明入口。
+    面向对象：参与模块开发、测试的所有成员（含不熟悉 Python 的前端同学）。
+
+  【设计思路】
+    1. 文档与脚本同级放置
+       说明文档与可执行脚本放在同一个目录（02-sql-scripts/），
+       打开目录即能看到文档，降低找文档的成本。
+
+    2. 平台分栏，快速定位
+       Windows 用 PS1，Linux/Mac 用 SH，两个平台的命令分开列出，
+       读者只需看自己平台的那一栏，无需阅读全文。
+
+    3. 菜单模式 vs 命令行模式
+       - 菜单模式：适合开发者手动操作，有确认步骤，防误触
+       - 命令行模式：适合自动化脚本调用，带 --yes 跳过所有交互
+       文档同时覆盖两种模式，让手动操作者和自动化工程师都能找到所需。
+
+    4. 三档操作粒度说明
+       模式 0（全量）是最常用场景，放在最前；
+       模式 1/2 是进阶用法，按需参考。
+       分档设计的原因在文档中明确说明，避免读者误用。
+
+    5. 环境配置集中说明
+       .env 文件路径、字段含义在"配置文件"节统一说明，
+       避免散落在各处导致配置不一致。
+
+  【与其他文件的关系】
+    run_mock.md   ← 本文档，提供使用说明
+    run_mock.py   ← 核心逻辑：DB 连接、SQL 解析、执行、菜单交互
+    run_mock.sh   ← Linux/Mac 包装器：环境检查 → 透传参数 → 调用 py
+    run_mock.ps1  ← Windows 包装器：环境检查 → 透传参数 → 调用 py
+
+    上游调用方：
+      test_mock.py    自动以"模式 0 --yes"调用 run_mock.py（可通过 SKIP_DB_INIT=1 禁用）
+      L3 闭环脚本     通过 run_mock.sh / run_mock.ps1 调用
+
+  【注意事项】
+    - 模式 0 / 1 会执行 DROP + CREATE TABLE，数据将全部清空，仅限开发环境
+    - 依赖安装命令：pip install pyyaml pymysql
+    - 数据库连接配置统一在 ../../../../.claude/.env 中维护
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+
+# {{ module.code.upper() }} 模块 - 数据库初始化说明
+
+> **用途**: 执行 {{ module.name }} 模块的表结构创建和测试数据插入，为接口测试提供可重复的数据环境
+> **支持平台**: Windows (PS1) · Linux/Mac (SH) · 直接 Python
+
+---
+
+## 快速开始
+
+### Windows
+```powershell
+cd 02-sql-scripts
+.\run_mock.ps1
+```
+
+### Linux/Mac
+```bash
+cd 02-sql-scripts
+chmod +x run_mock.sh
+./run_mock.sh
+```
+
+### 直接运行 Python
+```bash
+python run_mock.py
+```
+
+---
+
+## 交互菜单
+
+无参数启动后，进入交互菜单：
+
+```
+╔════════════════════════════════════════╗
+║  {{ module.code.upper() }} 模块 - SQL执行工具           ║
+╠════════════════════════════════════════╣
+║  0. 表结构 + 模拟数据 [Default]        ║
+║  1. 执行表结构 (Exec Table Structure)  ║
+║  2. 插入模拟数据                       ║
+║  b. 返回上一级 (Back)                  ║
+╚════════════════════════════════════════╝
+
+请选择 (Enter=默认选项0):
+```
+
+| 按键 | 功能 | 执行的 SQL 文件 |
+|------|------|----------------|
+| `0`（默认） | 表结构 + 模拟数据（全量重置） | `{{ module.code }}_exec.sql` → `{{ module.code }}_mock.sql` |
+| `1` | 仅执行表结构 | `{{ module.code }}_exec.sql` |
+| `2` | 仅插入模拟数据 | `{{ module.code }}_mock.sql` |
+| `b` | 退出 / 返回 | — |
+
+> ⚠️ **选项 0 / 1 会先 DROP 再 CREATE TABLE，表中所有数据将清空。**
+
+---
+
+## 命令行模式（自动化 / 非交互）
+
+适用于 CI/CD 流水线、L3 闭环脚本等自动化场景，带参数时跳过交互菜单。
+
+### 语法
+
+```bash
+# Linux/Mac
+./run_mock.sh <模式> [--yes]
+
+# Windows
+.\run_mock.ps1 <模式> [-Yes]
+
+# 直接 Python
+python run_mock.py <模式> [--yes]
+```
+
+### 参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `0` | 表结构 + 模拟数据（最常用） |
+| `1` | 仅执行表结构 |
+| `2` | 仅插入模拟数据 |
+| `--yes` / `-Yes` | 跳过二次确认，直接执行 |
+
+### 使用示例
+
+```bash
+# 全量重置（最常用，完全非交互）
+./run_mock.sh 0 --yes
+
+# 仅重建表结构（不插入数据）
+./run_mock.sh 1 --yes
+
+# 仅刷新测试数据（表结构不变）
+./run_mock.sh 2 --yes
+```
+
+```powershell
+# Windows 等价写法
+.\run_mock.ps1 0 -Yes
+.\run_mock.ps1 1 -Yes
+.\run_mock.ps1 2 -Yes
+```
+
+---
+
+## 与 test_mock.py 的联动关系
+
+`test_mock.py` 在启动时会**自动调用** `run_mock.py 0 --yes` 完成数据库全量重置，
+无需手动先跑本脚本再跑测试。
+
+如需跳过自动重置（例如已手动初始化过，只想重跑测试），设置环境变量：
+
+```bash
+# Linux/Mac
+SKIP_DB_INIT=1 python test_mock.py
+
+# Windows PowerShell
+$env:SKIP_DB_INIT = "1"; python test_mock.py
+```
+
+---
+
+## 执行的 SQL 文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `../02-sql/{{ module.code }}_exec.sql` | DDL | 建表脚本（DROP + CREATE TABLE） |
+| `../02-sql/{{ module.code }}_mock.sql` | DML | 测试数据插入（INSERT） |
+
+---
+
+## 数据库配置
+
+连接信息从项目根目录的 `.env` 文件读取：
+
+```
+# 路径: ../../../../.claude/.env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=123456
+DB_NAME=app_demo
+```
+
+> 所有模块共享同一份 `.env`，修改后对全部模块生效，无需逐个更新。
+
+---
+
+## 依赖安装
+
+```bash
+pip install pyyaml pymysql
+```
+
+---
+
+## 常见问题
+
+| 现象 | 原因 | 解决方法 |
+|------|------|----------|
+| `错误: 未安装 pymysql 库` | 缺少依赖 | `pip install pymysql` |
+| `错误: 数据库连接失败` | 配置错误或服务未启动 | 检查 `.env` 文件，确认 MySQL 已启动 |
+| `文件不存在: xxx_exec.sql` | SQL 文件未生成 | 先执行低代码生成器生成 `02-sql/` 目录内容 |
+| PS1 提示"无法加载文件" | PowerShell 执行策略限制 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |

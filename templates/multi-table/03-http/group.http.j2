@@ -1,0 +1,129 @@
+{%- set lb = '{{' -%}
+{%- set rb = '}}' -%}
+# 硬编码说明: localhost:9072 为本地开发服务地址，按需修改
+# {{ group_name }} 模块接口 — 所有子表 CRUD（{{ sub_tables | length }} 个子表）
+{% for st in sub_tables %}
+{% set sc = st.module.code %}
+@{{ sc }}_url = http://localhost:9072{{ st.module.api_path }}
+@test_{{ sc }}_id = {{ loop.index * 1000001 }}
+{% endfor %}
+
+{% for st in sub_tables %}
+{% set sc = st.module.code %}
+### ============================================================
+### {{ loop.index }}. {{ st.module.name }}（{{ st.module.api_path }}）
+### ============================================================
+
+### {{ loop.index }}.1 分页查询（基础）
+GET {{ lb }}{{ sc }}_url{{ rb }}/list?current=1&size=10
+Content-Type: application/json
+
+### {{ loop.index }}.2 分页查询（带条件）
+GET {{ lb }}{{ sc }}_url{{ rb }}/list?current=1&size=10{% for field in st.fields %}{% if field.filterable %}{% if field.type == 'input' or field.type == 'textarea' %}&{{ field.name }}={{ field.label }}1{% elif field.type == 'select' and field.options %}&{{ field.name }}={{ field.options[0].value }}{% elif field.type == 'date-year' %}&{{ field.name }}=2025{% elif field.type == 'date-month' %}&{{ field.name }}=2025-01{% elif field.type == 'number' %}&{{ field.name }}=10{% elif field.type == 'date' or field.type == 'datetime' %}&{{ field.name }}Begin=2025-01-01&{{ field.name }}End=2025-12-31{% endif %}{% endif %}{% endfor %}
+Content-Type: application/json
+
+### {{ loop.index }}.3 查询详情
+GET {{ lb }}{{ sc }}_url{{ rb }}/detail?id={{ lb }}test_{{ sc }}_id{{ rb }}
+Content-Type: application/json
+
+### {{ loop.index }}.4 新增
+POST {{ lb }}{{ sc }}_url{{ rb }}/add
+Content-Type: application/json
+
+{
+{% for field in st.fields %}{% if field.type == 'input' or field.type == 'textarea' %}
+    "{{ field.name }}": "{{ field.label }}测试",
+{% elif field.type == 'select' and field.options %}
+    "{{ field.name }}": {{ field.options[0].value }},
+{% elif field.type == 'date-year' %}
+    "{{ field.name }}": 2025,
+{% elif field.type == 'date-month' %}
+    "{{ field.name }}": "2025-06",
+{% elif field.type == 'number' %}
+    "{{ field.name }}": 100,
+{% elif field.type == 'decimal' %}
+    "{{ field.name }}": 99.99,
+{% elif field.type == 'date' %}
+    "{{ field.name }}": "2025-06-01",
+{% elif field.type == 'datetime' %}
+    "{{ field.name }}": "2025-06-01 10:00:00",
+{% else %}
+    "{{ field.name }}": null,
+{% endif %}{% endfor %}
+    "_placeholder": "remove this line"
+}
+
+### {{ loop.index }}.5 修改
+POST {{ lb }}{{ sc }}_url{{ rb }}/update
+Content-Type: application/json
+
+{
+    "id": "{{ lb }}test_{{ sc }}_id{{ rb }}",
+{% for field in st.fields %}{% if field.type == 'input' or field.type == 'textarea' %}
+    "{{ field.name }}": "{{ field.label }}已修改",
+{% elif field.type == 'select' and field.options %}
+    "{{ field.name }}": {{ field.options[0].value }},
+{% elif field.type == 'date-year' %}
+    "{{ field.name }}": 2025,
+{% elif field.type == 'date-month' %}
+    "{{ field.name }}": "2025-09",
+{% elif field.type == 'number' %}
+    "{{ field.name }}": 200,
+{% elif field.type == 'decimal' %}
+    "{{ field.name }}": 88.88,
+{% elif field.type == 'date' %}
+    "{{ field.name }}": "2025-09-01",
+{% elif field.type == 'datetime' %}
+    "{{ field.name }}": "2025-09-01 14:00:00",
+{% else %}
+    "{{ field.name }}": null,
+{% endif %}{% endfor %}
+    "_placeholder": "remove this line"
+}
+
+### {{ loop.index }}.6 删除
+POST {{ lb }}{{ sc }}_url{{ rb }}/remove
+Content-Type: application/json
+
+["{{ lb }}test_{{ sc }}_id{{ rb }}"]
+
+### {{ loop.index }}.7 导出
+{% set export_params = [] %}
+{% for field in st.fields %}{% if field.filterable %}{% if field.type == 'input' or field.type == 'textarea' %}{% set _ = export_params.append(field.name + '=' + field.label + '1') %}{% elif field.type == 'select' and field.options %}{% set _ = export_params.append(field.name + '=' + (field.options[0].value | string)) %}{% elif field.type == 'date-year' %}{% set _ = export_params.append(field.name + '=2025') %}{% elif field.type == 'date-month' %}{% set _ = export_params.append(field.name + '=2025-01') %}{% endif %}{% endif %}{% endfor %}
+GET {{ lb }}{{ sc }}_url{{ rb }}/export{% if export_params %}?{{ export_params | join('&') }}{% endif %}
+Content-Type: application/json
+
+### {{ loop.index }}.8 彻底删除（物理删除）
+POST {{ lb }}{{ sc }}_url{{ rb }}/physical-remove
+Content-Type: application/json
+
+["{{ lb }}test_{{ sc }}_id{{ rb }}"]
+
+{% if module.has_batch_operations %}
+### {{ loop.index }}.9 批量删除（逻辑删除）
+POST {{ lb }}{{ sc }}_url{{ rb }}/batch-delete
+Content-Type: application/json
+
+["{{ lb }}test_{{ sc }}_id{{ rb }}"]
+
+### {{ loop.index }}.10 批量彻底删除（物理删除）
+POST {{ lb }}{{ sc }}_url{{ rb }}/batch-physical-delete
+Content-Type: application/json
+
+["{{ lb }}test_{{ sc }}_id{{ rb }}"]
+
+### {{ loop.index }}.11 批量更新
+POST {{ lb }}{{ sc }}_url{{ rb }}/batch-update
+Content-Type: application/json
+
+{
+    "ids": ["{{ lb }}test_{{ sc }}_id{{ rb }}"],
+    "data": {
+{% for f in st.module.batch_operations["update"]["fields"] %}
+    "{{ f.name }}": {% if f.type == 'select' %}1{% elif f.type == 'date' %}"2025-01-01"{% else %}"示例值"{% endif %}{% if not loop.last %},{% endif %}
+
+{% endfor %}
+    }
+}
+{% endif %}
+{% endfor %}

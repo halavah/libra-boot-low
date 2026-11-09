@@ -1,0 +1,75 @@
+---
+name: {{ module.code_pascal | upper }} Database Design Standards (Cognitive Optimized)
+description: {{ module.name }}数据库设计（多平级子表模式）。
+---
+
+# {{ module.name }}数据库设计
+
+## 1. 表结构概览
+
+| 表名 (Table) | 说明 (Description) | 备注 |
+| :--- | :--- | :--- |
+{% for sub in sub_tables %}
+| `biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}` | {{ sub.module.name }} | 平级子表 {{ loop.index }} |
+{% endfor %}
+
+## 2. 详细设计
+
+{% for sub in sub_tables %}
+### 2.{{ loop.index }} {{ sub.module.name }}表 (`biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **审计字段**: 包含 `create_dept` (数据权限核心)
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 |
+{% for field in sub.fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 |
+| `create_user` | BIGINT | 20 | Y | 创建人 |
+| `create_time` | DATETIME | | Y | 创建时间 |
+| `update_user` | BIGINT | 20 | N | 更新人 |
+| `update_time` | DATETIME | | N | 更新时间 |
+
+**索引设计**:
+{% for field in sub.fields if field.filterable %}
+{{ loop.index }}.  `idx_{{ field.column_name }}` (`{{ field.column_name }}`)
+
+{% endfor %}
+
+{% endfor %}
+
+## 3. 表关系图
+
+```
+{{ module.name }}（{{ module.code }}）— 多平级子表结构
+
+{% for sub in sub_tables %}
+├── biz_{{ module.domain }}_{{ module.code }}_{{ sub.module.code }}（{{ sub.module.name }}）
+│     └── 独立 CRUD，无外键关联
+{% endfor %}
+```
+
+## 4. 枚举定义
+
+{% for sub in sub_tables %}
+{% set select_fields = sub.fields | selectattr('type', 'equalto', 'select') | list %}
+{% if select_fields %}
+### 4.{{ loop.index }} {{ sub.module.name }}枚举
+{% for field in select_fields %}
+
+#### {{ field.name }} — {{ field.label }}
+```java
+public enum {{ sub.module.code_pascal }}{{ field.name_pascal }}Enum {
+{% for opt in field.options %}
+    {{ opt.label | upper | replace(' ', '_') }}({{ opt.value }}, "{{ opt.label }}"){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+}
+```
+{% endfor %}
+{% endif %}
+{% endfor %}

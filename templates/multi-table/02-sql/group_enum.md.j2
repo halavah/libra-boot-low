@@ -1,0 +1,41 @@
+# {{ group_name }} 枚举定义
+
+> **模块组**: {{ group_name }}（{{ module.domain_chinese }}）
+
+---
+{% for st in sub_tables %}
+## {{ st.module.name }}（{{ st.module.code }}）字段枚举
+{% for field in st.fields %}{% if field.type == 'select' and field.options %}
+
+### {{ field.name }} — {{ field.label }}
+
+| Code | 含义 |
+|------|------|
+{% for opt in field.options %}| {{ opt.value }} | {{ opt.label }} |
+{% endfor %}
+{% endif %}{% endfor %}
+---
+{% endfor %}
+
+## 前端使用示例
+
+```javascript
+// 枚举常量定义（按子表分组）
+{% for st in sub_tables %}
+// {{ st.module.name }}
+{% for field in st.fields %}{% if field.type == 'select' and field.options %}const {{ field.name | upper }}_MAP = {
+{% for opt in field.options %}  {{ opt.value }}: '{{ opt.label }}',
+{% endfor %}};
+{% endif %}{% endfor %}
+{% endfor %}
+```
+
+## 后端使用示例
+
+```java
+// 在 Service 层中使用 Integer 比较，禁止使用 Enum 类型进行传输
+{% for st in sub_tables %}{% for field in st.fields %}{% if field.type == 'select' and field.options %}
+// {{ st.module.name }}.{{ field.label }}
+// param.get{{ field.name | pascal }}().equals({{ field.options[0].value }}) → {{ field.options[0].label }}
+{% endif %}{% endfor %}{% endfor %}
+```

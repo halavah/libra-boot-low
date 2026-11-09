@@ -1,0 +1,63 @@
+-- =====================================================
+-- {{ group_name }} 模块数据库脚本
+-- 模块组: {{ group_name }} ({{ group_code }})
+-- 业务域: {{ master_module.domain_chinese }}
+-- 所属系统: {{ project.name }}
+-- 明细表数量: {{ detail_modules | length }}
+-- =====================================================
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- 1. 清理旧表（先删明细表，再删主表）
+-- ----------------------------
+{% for dm in detail_modules | reverse %}
+DROP TABLE IF EXISTS `{{ dm.table_name }}`;
+{% endfor %}
+DROP TABLE IF EXISTS `{{ master_module.table_name }}`;
+
+-- ----------------------------
+-- 2. 创建主表（{{ master_module.name }}）
+-- ----------------------------
+CREATE TABLE `{{ master_module.table_name }}` (
+  `id`           BIGINT       NOT NULL                   COMMENT '主键ID（雪花算法）',
+{% for field in master_fields %}
+  `{{ field.column_name }}`  {{ field.sql_type }}{% if field.sql_length %}({{ field.sql_length }}){% endif %} {% if field.required %}NOT NULL{% else %}DEFAULT NULL{% endif %} COMMENT '{{ field.label }}{% if field.required %}（必填）{% endif %}',
+{% endfor %}
+  `is_deleted`   INT          NOT NULL DEFAULT 0         COMMENT '逻辑删除：0=正常，1=已删除',
+  `create_time`  DATETIME     DEFAULT NULL               COMMENT '创建时间',
+  `create_user`  BIGINT       DEFAULT NULL               COMMENT '创建人ID',
+  `create_dept`  BIGINT       DEFAULT NULL               COMMENT '创建部门ID（数据权限）',
+  `update_time`  DATETIME     DEFAULT NULL               COMMENT '更新时间',
+  `update_user`  BIGINT       DEFAULT NULL               COMMENT '更新人ID',
+  PRIMARY KEY (`id`){% for field in master_fields %}{% if field.indexed %},
+  INDEX `idx_{{ field.column_name }}` (`{{ field.column_name }}`){% endif %}{% endfor %}
+
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{{ master_module.name }}主表';
+
+{% for dm in detail_modules %}
+-- ----------------------------
+-- {{ loop.index + 2 }}. 创建明细表{{ loop.index }}（{{ dm.name }}）
+-- ----------------------------
+CREATE TABLE `{{ dm.table_name }}` (
+  `id`                       BIGINT       NOT NULL                   COMMENT '主键ID（雪花算法）',
+  `{{ dm.master_fk_column }}`  BIGINT NOT NULL                      COMMENT '关联{{ master_module.name }}主表ID',
+{% for field in dm.fields %}
+  `{{ field.column_name }}`  {{ field.sql_type }}{% if field.sql_length %}({{ field.sql_length }}){% endif %} {% if field.required %}NOT NULL{% else %}DEFAULT NULL{% endif %} COMMENT '{{ field.label }}{% if field.required %}（必填）{% endif %}',
+{% endfor %}
+  `is_deleted`   INT          NOT NULL DEFAULT 0         COMMENT '逻辑删除：0=正常，1=已删除',
+  `create_time`  DATETIME     DEFAULT NULL               COMMENT '创建时间',
+  `create_user`  BIGINT       DEFAULT NULL               COMMENT '创建人ID',
+  `create_dept`  BIGINT       DEFAULT NULL               COMMENT '创建部门ID（数据权限）',
+  `update_time`  DATETIME     DEFAULT NULL               COMMENT '更新时间',
+  `update_user`  BIGINT       DEFAULT NULL               COMMENT '更新人ID',
+  PRIMARY KEY (`id`),
+  INDEX `idx_{{ dm.master_fk_column }}` (`{{ dm.master_fk_column }}`){% for field in dm.fields %}{% if field.indexed %},
+  INDEX `idx_{{ field.column_name }}` (`{{ field.column_name }}`){% endif %}{% endfor %}
+
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{{ dm.name }}明细表';
+
+{% endfor %}
+SET FOREIGN_KEY_CHECKS = 1;
+
+SELECT '✅ {{ group_name }} 表结构创建完成（主表 + {{ detail_modules | length }} 个明细表）' AS status;

@@ -1,0 +1,152 @@
+# gen_page_test 说明文档
+
+> 主脚本: `run_page_test.py`（原名 `gen_page_test.py`）
+
+---
+
+## 功能概述
+
+`run_page_test.py` 是一个零硬编码的 Vue E2E 测试脚本生成器。它通过静态解析当前模块的 `.vue` 文件，自动生成可直接运行的 Playwright 测试文件（`index.test.js`）。
+
+**核心逻辑：**
+1. 从脚本所在路径自动推导模块信息（`cat/mod`）
+2. 扫描对应 Vue 目录的所有 `.vue` 文件
+3. 解析按钮、API 调用、dialog 结构、子视图映射
+4. 生成测试脚本，每个按钮对应一条 `test()`
+
+---
+
+## 自动路径推导
+
+```
+.claude/unit/{cat}/{mod}/04-page-scripts/run_page_test.py
+                  ↓
+Vue 目录: app-web/src/views/{cat}/{mod}/
+路由路径: /{cat}/{mod}/index
+```
+
+例：`.claude/unit/demo/sample/04-page-scripts/` → `demo/sample`
+
+---
+
+## 解析内容
+
+### 1. 普通按钮
+```html
+<el-button @click="handler">按钮文字</el-button>
+```
+提取：`label`（按钮文字）、`handler`（函数名）、`btn_type`（link/normal）
+
+**三元表达式处理：**
+```html
+<el-button @click="fn">{{ '{{' }} isDetailMode ? '关闭' : '取消' {{ '}}' }}</el-button>
+```
+→ 取 false 分支 `'取消'`（默认渲染状态）
+
+### 2. Dialog 内按钮
+检测 `<el-dialog>...</el-dialog>` 块内的按钮，标记为 `dialog_button_handlers`。
+
+这类按钮测试时需要先点「新增」打开 dialog：
+```javascript
+await page.getByRole('button', { name: '新增' }).first().click();
+await page.locator('.el-dialog').first().waitFor({ state: 'visible', timeout: 10000 });
+```
+
+### 3. 子视图（isType 切换）
+解析 `index.vue` 中的子组件 isType 映射：
+```html
+<SampleSignup v-else-if="isType == 4" ... />
+<SampleWork   v-else-if="isType == 5" ... />
+```
+→ 映射：`{'sample-signup.vue': 4, 'sample-work.vue': 5}`
+
+这类子视图按钮测试时，先通过**隐藏导航按钮**切换 isType：
+```javascript
+await page.locator('[data-testid="nav-sample-signup"]').click({ force: true });
+await page.waitForLoadState('networkidle', { timeout: 10000 });
+```
+
+### 4. API 调用映射
+函数体内的 `api.xxx()` 调用会作为注释写入测试脚本，方便调试：
+```javascript
+// 预期 API: exportSample
+```
+
+---
+
+## 隐藏导航按钮规范
+
+为了让 Playwright 能进入子视图（isType=4/5 等），需要在 `index.vue` 中添加**不显示在 UI 上**的测试专用按钮：
+
+```html
+<!-- E2E 测试专用隐藏导航按钮（不影响 UI 显示） -->
+<el-button data-testid="nav-sample-signup" style="display:none" @click="navToSignup" />
+<el-button data-testid="nav-sample-work"   style="display:none" @click="navToWork" />
+```
+
+命名规则：`data-testid="nav-{vue文件名去掉.vue}"`
+
+Playwright 使用 `force: true` 强制点击隐藏元素：
+```javascript
+await page.locator('[data-testid="nav-sample-signup"]').click({ force: true });
+```
+
+---
+
+## 前置条件设置
+
+### index.vue 按钮优先级判断
+生成测试的前置操作逻辑（按优先级叠加）：
+
+| 条件 | 前置操作 |
+|------|---------|
+| 按钮在 index.vue | 无 |
+| 按钮在子视图（有 isType 映射） | 先点隐藏导航按钮切换视图 |
+| 按钮在 dialog 内 | 在上一步基础上，再点「新增」打开 dialog |
+
+---
+
+## 用法
+
+```bash
+# 生成（已存在则跳过）
+python3 run_page_test.py
+
+# 强制覆盖重新生成
+python3 run_page_test.py --force
+```
+
+通常不需要手动调用，由 `run_page_test.sh`（或 `.ps1`）自动调用并传入 `--force`。
+
+---
+
+## 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `index.test.js` | 生成的 Playwright 测试脚本（与本脚本同目录） |
+
+---
+
+## 完整运行流程
+
+```
+run_page_test.sh
+  │
+  ├─ export TEST_RUN_ID=test_YYYYMMDD_HHMMSS
+  ├─ python3 run_page_test.py --force   → 生成 index.test.js
+  ├─ npx playwright test                → 执行测试
+  │    ├─ 截图 → ../05-out/{RUN_ID}/*.png
+  │    ├─ HTML 报告 → ../05-out/{RUN_ID}/index.html
+  │    └─ results.json → ../05-out/{RUN_ID}/results.json
+  └─ python3 (inline) → ../05-out/{RUN_ID}/test_summary.md
+```
+
+---
+
+## 扩展规则
+
+如需测试新模块，只需：
+1. 将 `04-page-scripts/` 目录（含所有文件）复制到新模块
+2. 无需修改任何路径配置，脚本自动推导
+3. 如有子视图（isType 切换），在 `index.vue` 添加对应隐藏导航按钮

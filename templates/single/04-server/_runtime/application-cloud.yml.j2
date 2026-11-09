@@ -1,0 +1,8 @@
+# 拆模式 cloud profile（--spring.profiles.active=cloud）：Nacos 注册独立微服务
+spring:
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        fail-fast: false
+        register-enabled: ${NACOS_REGISTER:true}

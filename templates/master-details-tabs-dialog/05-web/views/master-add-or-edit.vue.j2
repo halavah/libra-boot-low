@@ -1,0 +1,115 @@
+<template>
+  <div class="edit-container">
+    <el-scrollbar>
+      <G-back :title="id ? '编辑{{ master_module.name }}' : '新增{{ master_module.name }}'" @go-back="handleBack"></G-back>
+
+      <el-card class="mb-20">
+        <template #header>
+          <div class="card-header"><span class="title">基本信息</span></div>
+        </template>
+        <G-form-add ref="formRef" :form-data="form" :form-rules="rules" :form-data-info="formInfo" :show-footer="true" @call-back-data="handleSubmit" />
+      </el-card>
+
+      <!-- 仅编辑模式（有 id）时显示明细 Tab -->
+      <el-card v-if="props.id" class="mb-20">
+        <el-tabs v-model="activeTab">
+          {% for dm in detail_modules %}
+          <el-tab-pane label="{{ dm.name }}" name="{{ dm.code }}">
+            <{{ module.code }}-{{ dm.code }}-manage :master-id="props.id" :is-embedded="true" />
+          </el-tab-pane>
+          {% endfor %}
+        </el-tabs>
+      </el-card>
+
+      <div style="height: 150px"></div>
+    </el-scrollbar>
+  </div>
+</template>
+
+<script setup>
+import { reactive, toRefs, onMounted, ref } from "vue"
+import { ElMessage } from "element-plus"
+import api from "@/service/{{ module.domain }}/{{ group_code }}.js"
+{% for dm in detail_modules %}
+import {{ module.code_pascal }}{{ dm.code_pascal }}Manage from "./{{ module.code }}-{{ dm.code }}-manage.vue"
+{% endfor %}
+
+const props = defineProps({
+  id: String
+})
+const emit = defineEmits(["call-back-data"])
+
+const activeTab = ref("{{ detail_modules[0].code if detail_modules else '' }}")
+
+const state = reactive({
+  form: {
+{% for field in master_fields %}{% if not field.generated %}    {{ field.name }}: {% if field.type == 'select' or field.type == 'date' or field.type == 'datetime' or field.type == 'date-year' or field.type == 'date-month' %}""{% elif field.type == 'number' or field.type == 'decimal' %}0{% else %}""{% endif %},
+{% endif %}{% endfor %}  },
+  rules: {
+{% for field in master_fields %}{% if field.required and not field.generated %}    {{ field.name }}: [{ required: true, message: "{% if field.type == 'select' %}请选择{% else %}请输入{% endif %}{{ field.label }}", trigger: "{% if field.type == 'select' %}change{% else %}blur{% endif %}" }],
+{% endif %}{% endfor %}  },
+  formInfo: [
+{% for field in master_fields %}{% if not field.generated %}    {
+      label: "{{ field.label }}",
+      prop: "{{ field.name }}",
+      type: "{% if field.type == 'select' %}select{% elif field.type == 'date-year' %}date{% elif field.type == 'date-month' %}date{% elif field.type == 'date' %}date{% elif field.type == 'datetime' %}datetime{% elif field.type == 'textarea' %}textarea{% elif field.type == 'number' or field.type == 'decimal' %}number{% else %}input{% endif %}",
+      span: 12{% if field.type == 'select' and field.options %},
+      options: {{ field.options_json }}{% endif %}{% if field.type == 'date-year' %},
+      dateInfo: { type: "year", format: "YYYY", vFormat: "YYYY" }{% elif field.type == 'date-month' %},
+      dateInfo: { type: "month", format: "YYYY-MM", vFormat: "YYYY-MM" }{% endif %}
+    },
+{% endif %}{% endfor %}  ]
+})
+
+const { form, rules, formInfo } = toRefs(state)
+
+// 日期字段标准化
+const normalizeDateField = (value, type) => {
+  if (value === null || value === undefined || value === '') return ''
+  const s = String(value).replace('T', ' ').split('.')[0].split('+')[0].trimEnd()
+  if (type === 'date-year') return s.slice(0, 4)
+  if (type === 'date-month') return s.slice(0, 7)
+  if (type === 'date') return s.slice(0, 10)
+  if (type === 'datetime') return s.slice(0, 19)
+  return value
+}
+
+onMounted(() => {
+  if (props.id) {
+    api.getMasterDetail(props.id).then((res) => {
+      if (res) {
+        Object.assign(state.form, res)
+{% for field in master_fields %}{% if field.type in ['date-year', 'date-month', 'date', 'datetime'] %}        state.form.{{ field.name }} = normalizeDateField(state.form.{{ field.name }}, '{{ field.type }}')
+{% endif %}{% endfor %}      }
+    })
+  }
+})
+
+const handleSubmit = (val) => {
+  if (!val) { handleBack(); return }
+  const data = { ...state.form, ...val, id: props.id }
+  const request = props.id ? api.updateMaster(data) : api.addMaster(data)
+  request.then((res) => {
+    if (res !== undefined) {
+      ElMessage.success("保存成功")
+      emit("call-back-data", 1)
+    }
+  })
+}
+
+const handleBack = () => {
+  emit("call-back-data", 0)
+}
+</script>
+
+<style lang="scss" scoped>
+.edit-container {
+  .mb-20 {
+    margin-bottom: 20px;
+  }
+  .card-header .title {
+    font-weight: bold;
+    font-size: 16px;
+  }
+}
+</style>

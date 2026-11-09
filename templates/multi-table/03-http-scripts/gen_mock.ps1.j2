@@ -1,0 +1,111 @@
+<#
+.SYNOPSIS
+    通用模块 - Postman 集合生成器 (PowerShell 包装器)
+
+.DESCRIPTION
+    gen_mock.py 的 Windows 包装器。
+    本脚本不含任何业务逻辑，职责单一：
+      1. 检查运行环境（Python 是否可用）
+      2. 将所有参数原样透传给 gen_mock.py
+    真正的生成逻辑全部在 gen_mock.py 中实现，两者分工明确。
+
+    ══════════════════════════════════════════════════════
+    【脚本定位】
+      03-http-scripts/gen_mock.ps1 — gen_mock.py 的 Windows 包装器
+      面向 Windows 开发环境，与 gen_mock.sh 功能对等。
+      属于"辅助工具"：不参与自动化闭环，仅在需要生成
+      Postman/Apifox 集合文件时手动执行。
+
+    【设计思路】
+      1. 薄包装原则
+         PowerShell 脚本只做"启动器"，不重复实现业务逻辑。
+         维护时只需修改 gen_mock.py，ps1 无需同步改动。
+
+      2. python3 / python 双探测
+         Windows 上部分安装方式只有 python，部分有 python3，
+         优先探测 python3，回退到 python，确保兼容性。
+
+      3. 参数透传
+         @args 将调用者传入的所有参数原封不动地转给 Python，
+         支持 gen_mock.py 的所有命令行参数：
+           --dir  <目录>      指定扫描的 .http 文件目录（默认 ../03-http）
+           --name <集合名称>  自定义生成的 Postman 集合名称
+         示例：
+           .\gen_mock.ps1                        → 使用默认参数生成
+           .\gen_mock.ps1 --name "我的测试集合"  → 自定义集合名称
+           .\gen_mock.ps1 --dir C:\path\to\http  → 指定 .http 目录
+
+      4. 轻量依赖
+         gen_mock.py 只使用 Python 标准库，无需 pip 安装任何依赖，
+         因此本脚本省略了依赖检查步骤（与 run_mock.ps1 不同）。
+
+      5. 退出码透传
+         捕获 $LASTEXITCODE 并以相同退出码退出，
+         保证脚本被外部工具调用时能正确感知成败。
+
+    【执行流程】
+      启动
+        ↓ 定位脚本目录（$PSScriptRoot）
+        ↓ 确认 gen_mock.py 存在
+        ↓ 探测 python3 / python 命令
+        ↓ 执行：& $PythonCmd gen_mock.py @args
+        └─ 任意步骤失败 → Write-Host 错误信息 → exit 1
+
+    【调用关系】
+      ┌──────────────────────────────────────────────────────────┐
+      │  手动执行    .\gen_mock.ps1                              │
+      │  手动执行    .\gen_mock.ps1 --name "xxx"                 │
+      │  不被任何脚本自动调用（纯手动工具）                      │
+      └──────────────────────────────────────────────────────────┘
+      输出文件：../05-out/{module}_{YYYYMMDD_HHmmss}.json
+      用途：导入 Postman / Apifox 进行可视化接口调试
+
+    【注意事项】
+      - 首次使用若遇执行策略限制，运行：
+          Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+      - 输出目录 ../05-out/ 不存在时 gen_mock.py 会自动创建
+      - baseUrl 硬编码为 127.0.0.1:9072，如需修改请编辑 gen_mock.py
+    ══════════════════════════════════════════════════════
+#>
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "  通用模块 - Postman 集合生成器" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+
+$ScriptPath = Join-Path $PSScriptRoot "gen_mock.py"
+
+if (-not (Test-Path $ScriptPath)) {
+    Write-Host "Error: gen_mock.py not found." -ForegroundColor Red
+    exit 1
+}
+
+# ---- 探测 Python 命令（python3 优先，回退到 python）----
+$PythonCmd = $null
+if (Get-Command python3 -ErrorAction SilentlyContinue) {
+    $PythonCmd = "python3"
+} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    $PythonCmd = "python"
+} else {
+    Write-Host "Error: Python not found. Please install Python 3." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "✓ Python: $(& $PythonCmd --version)" -ForegroundColor Green
+Write-Host ""
+
+# ---- 透传所有参数给 Python 核心脚本 ----
+# 支持：无参数（默认生成）/ 带参数（如 --name / --dir）
+& $PythonCmd $ScriptPath @args
+
+$ExitCode = $LASTEXITCODE
+Write-Host ""
+Write-Host "------------------------------------------"
+if ($ExitCode -eq 0) {
+    Write-Host "Done. 集合文件已生成到 ../05-out/ 目录。" -ForegroundColor Green
+} else {
+    Write-Host "Error: 生成失败 (Exit Code: $ExitCode)." -ForegroundColor Red
+}
+Write-Host ""
+exit $ExitCode

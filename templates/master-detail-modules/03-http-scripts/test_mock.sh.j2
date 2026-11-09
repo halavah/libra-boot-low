@@ -1,0 +1,161 @@
+#!/bin/bash
+# ==============================================================================
+# 【脚本定位】
+#   03-http-scripts/test_mock.sh — test_mock.py 的 Linux/Mac 包装器
+#   在整个测试链路中属于"入口层"：
+#     开发者在 Linux/Mac 终端直接双击或命令行执行本脚本，
+#     通过交互菜单选择测试模式，最终驱动 test_mock.py 完成接口验证。
+#   是 L3 原子闭环验证在 Linux/Mac 平台的人工触发入口。
+#
+# 【设计思路】
+#   1. 薄包装原则
+#      Shell 脚本只做"启动器 + 菜单"，不重复实现业务逻辑。
+#      测试逻辑全部在 test_mock.py 中，sh 仅负责：
+#        - 检查运行环境
+#        - 展示交互菜单
+#        - 将正确的环境变量传给 Python
+#
+#   2. 菜单 vs 直接执行
+#      - 无参数启动：展示方框菜单，默认选项 0（全量执行）
+#        直接回车即可完成最常用的"重置 DB + 全量测试"操作
+#      - 有参数启动：跳过菜单，原样透传给 Python（自动化专用）
+#
+#   3. 用环境变量控制行为，而非 CLI 参数
+#      test_mock.py 没有 argparse，只认环境变量：
+#        SKIP_DB_INIT=1   → 跳过数据库初始化
+#        BEARER_TOKEN=xxx → 注入认证令牌
+#      菜单选项通过设置正确的环境变量 + 直接调用 Python 脚本来实现，
+#      而不是传入 --test / --reset 等 Python 不认识的参数。
+#
+#   4. 选项 2（仅重置DB）的特殊处理
+#      test_mock.py 不负责"仅重置DB"，这个功能属于 run_mock.py。
+#      选项 2 直接调用 run_mock.py 0 --yes，职责清晰，不绕弯。
+#
+#   5. 默认选项设计为 0（全量执行）
+#      开发阶段最常见的操作就是"重置 DB + 跑全量测试"，
+#      将其设为默认值（Enter 直接确认）最大化减少操作步骤。
+#      ${mode:-0} 语法：变量为空时取默认值 0。
+#
+#   6. 菜单风格与 run_mock.py 统一
+#      使用方框绘图字符（╔╠╚║═）渲染菜单，与 run_mock.py 的交互风格
+#      保持视觉一致，提升工具链的整体专业感。
+#
+#   7. python3 优先回退策略
+#      先尝试 python3，不存在再尝试 python，兼容不同环境。
+#
+# 【执行流程】
+#   启动
+#     ↓ 定位脚本目录（SCRIPT_DIR）
+#     ↓ 检查 test_mock.py 是否存在
+#     ↓ 探测 python3 / python 命令
+#     ↓ 判断是否有命令行参数 $#
+#       ├─ 有参数 → 直接透传 "$@" 给 Python → 退出
+#       └─ 无参数 → 显示交互菜单
+#           ↓ 读取用户输入（默认值 0）
+#           ├─ 0 → python test_mock.py（内部自动重置 DB）
+#           ├─ 1 → SKIP_DB_INIT=1 python test_mock.py
+#           ├─ 2 → python run_mock.py 0 --yes
+#           └─ b → 退出
+#
+# 【调用关系】
+#   ┌──────────────────────────────────────────────────────────┐
+#   │  手动执行        ./test_mock.sh                          │
+#   │  手动执行        ./test_mock.sh（选项1 → SKIP_DB_INIT=1）│
+#   │  L3闭环脚本调用  SKIP_DB_INIT=1 python test_mock.py     │
+#   │                  （L3 直接调用 py，不经过本 sh）         │
+#   └──────────────────────────────────────────────────────────┘
+#   本脚本内部触发：
+#     选项0 → test_mock.py（内部再调 run_mock.py）
+#     选项1 → test_mock.py（SKIP_DB_INIT=1，跳过 run_mock.py）
+#     选项2 → run_mock.py 0 --yes（直接重置 DB，不跑测试）
+#
+# 【环境变量】
+#   SKIP_DB_INIT=1   跳过数据库初始化（选项 1 时由本脚本设置）
+#   BEARER_TOKEN=xxx 注入认证令牌，也可在启动前预先 export
+#
+# 【注意事项】
+#   - 首次使用前需赋予执行权限：chmod +x test_mock.sh
+#   - 依赖安装：pip3 install requests
+#   - 测试前确保后端服务已启动（默认端口 9072）
+#   - 数据库配置位于 ../../../../.env
+# ==============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/test_mock.py"
+RUN_MOCK_PATH="$SCRIPT_DIR/../02-sql-scripts/run_mock.py"
+
+if [ ! -f "$SCRIPT_PATH" ]; then
+    echo "Error: Core script 'test_mock.py' not found."
+    exit 1
+fi
+
+if ! command -v python3 &> /dev/null && ! command -v python &> /dev/null; then
+    echo "Error: Python not found in PATH."
+    exit 1
+fi
+
+PYTHON=$(command -v python3 || command -v python)
+
+# ---- 有参数时直接透传环境变量给 Python ----
+# 支持: SKIP_DB_INIT=1 ./test_mock.sh
+# 支持: BEARER_TOKEN=xxx ./test_mock.sh
+if [ $# -gt 0 ]; then
+    "$PYTHON" "$SCRIPT_PATH" "$@"
+    EXIT_CODE=$?
+    echo ""
+    echo "------------------------------------------"
+    [ $EXIT_CODE -eq 0 ] && echo "Test Suite Completed." || echo "Test Suite Completed with Errors (Exit Code: $EXIT_CODE)."
+    echo ""
+    exit $EXIT_CODE
+fi
+
+# ---- 无参数时显示方框交互菜单 ----
+echo ""
+echo "╔════════════════════════════════════════╗"
+echo "║  {{ module.code.upper() }} 模块 - HTTP接口测试工具      ║"
+echo "╠════════════════════════════════════════╣"
+echo "║  0. 全量执行 [Default]                 ║"
+echo "║     （重置DB + 运行全部接口测试）       ║"
+echo "║  1. 仅运行测试（不重置数据库）          ║"
+echo "║  2. 仅重置数据库                        ║"
+echo "║  b. 退出 (Back)                         ║"
+echo "╚════════════════════════════════════════╝"
+echo ""
+read -p "  请选择 (Enter=默认选项0): " mode
+mode="${mode:-0}"
+
+echo ""
+
+case "$mode" in
+    0)
+        # 全量：test_mock.py 内部自动调用 run_mock.py 重置 DB，再执行全部测试
+        "$PYTHON" "$SCRIPT_PATH"
+        ;;
+    1)
+        # 仅测试：通过环境变量跳过 DB 初始化
+        SKIP_DB_INIT=1 "$PYTHON" "$SCRIPT_PATH"
+        ;;
+    2)
+        # 仅重置 DB：直接调用 run_mock.py
+        if [ ! -f "$RUN_MOCK_PATH" ]; then
+            echo "Error: run_mock.py not found at $RUN_MOCK_PATH"
+            exit 1
+        fi
+        "$PYTHON" "$RUN_MOCK_PATH" 0 --yes
+        ;;
+    b|B)
+        echo "  已退出。"
+        exit 0
+        ;;
+    *)
+        echo "  无效选项，退出。"
+        exit 1
+        ;;
+esac
+
+EXIT_CODE=$?
+echo ""
+echo "------------------------------------------"
+[ $EXIT_CODE -eq 0 ] && echo "Test Suite Completed." || echo "Test Suite Completed with Errors (Exit Code: $EXIT_CODE)."
+echo ""
+echo "Test Finished."

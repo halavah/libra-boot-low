@@ -1,0 +1,47 @@
+-- =====================================================
+-- {{ group_name }} 模块测试数据脚本
+-- 主表10条 + 各明细表25条（共 {{ detail_modules | length }} 个明细表）
+-- =====================================================
+SET NAMES utf8mb4;
+
+{% for dm in detail_modules | reverse %}
+TRUNCATE TABLE `{{ dm.table_name }}`;
+{% endfor %}
+TRUNCATE TABLE `{{ master_module.table_name }}`;
+
+-- ----------------------------
+-- 1. 插入主表测试数据（{{ master_module.name }}，10条）
+-- ----------------------------
+INSERT INTO `{{ master_module.table_name }}` (
+  `id`{% for field in master_fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 11) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 4 %}
+{% set mo = row_idx % 4 + 1 %}
+({{ 1000000 + i }}, {% for field in master_fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+{% for dm in detail_modules %}
+{% set dm_loop_index0 = loop.index0 %}
+-- ----------------------------
+-- {{ loop.index + 1 }}. 插入明细表{{ loop.index }}测试数据（{{ dm.name }}，25条）
+-- ----------------------------
+INSERT INTO `{{ dm.table_name }}` (
+  `id`, `{{ dm.master_fk_column }}`{% for field in dm.fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set master_idx = row_idx % 10 + 1 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+{% set dm_id_base = (dm_loop_index0 + 2) * 1000000 %}
+({{ dm_id_base + i }}, {{ 1000000 + master_idx }}, {% for field in dm.fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+{% endfor %}
+SELECT '✅ {{ group_name }} 测试数据导入完成（主表10条 + 各明细表25条）' AS status;

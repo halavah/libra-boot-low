@@ -1,0 +1,343 @@
+<template>
+  <div v-if="isType == 1" class="container">
+    <!-- 搜索区域 -->
+    <G-form-search :form-data="formData" :form-data-info="formDataInfo" @call-back-data="listSearch"></G-form-search>
+
+    <!-- 操作按钮 -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div style="display: flex; gap: 10px;">
+        <el-button type="primary" icon="Plus" @click="topOperate(1)">新增</el-button>
+{% if module.has_batch_operations and module.batch_operations.delete.enabled %}
+        <el-button type="primary" icon="Delete" plain :disabled="selectIds.length === 0" @click="handleBatchDelete">批量删除</el-button>
+{% endif %}
+{% if module.has_batch_operations and module.batch_operations.physical_delete.enabled %}
+        <el-button type="primary" icon="DeleteFilled" plain :disabled="selectIds.length === 0" @click="handleBatchPhysicalDelete">批量彻底删除</el-button>
+{% endif %}
+{% if module.has_batch_operations and module.batch_operations["update"]["enabled"] %}
+        <el-button type="primary" plain :disabled="selectIds.length === 0" @click="openBatchUpdateDialog">批量更新</el-button>
+{% endif %}
+        <el-button type="primary" icon="Download" plain @click="handleExport">导出</el-button>
+      </div>
+      <G-operation :show-left="false" :table-header="{ originHeader: originHeader, tableHeader: tableHeader }" @call-back-data="topOperate"></G-operation>
+    </div>
+
+    <!-- 列表 -->
+    <G-table
+      ref="refGtable"
+      :loading="loading"
+      :table-data="tableData"
+      :table-header="tableHeader"
+      :table-info="{ customOperate: true{% if module.has_batch_operations %}, isSelect: true, reserveSelection: true, rowKey: 'id'{% endif %} }"
+      :page-no="page.current"
+      :page-size="page.size"
+      @call-back-data="listOperate"
+{% if module.has_batch_operations %}
+      @selection-change="handleSelectionChange"
+{% endif %}
+    >
+      {% for field in fields %}{% if field.type == 'select' and field.options %}
+      <template #{{ field.name }}="{ row }">
+{% for opt in field.options %}        <el-tag v-{% if loop.index0 == 0 %}if{% else %}else-if{% endif %}="row.{{ field.name }} == '{{ opt.value }}'" type="{% if loop.index0 == 0 %}info{% elif loop.index0 == 1 %}primary{% elif loop.index0 == 2 %}success{% elif loop.index0 == 3 %}warning{% else %}danger{% endif %}">{{ opt.label }}</el-tag>
+{% endfor %}        <span v-else>--</span>
+      </template>
+{% endif %}{% endfor %}
+      <template #operateColumn="{ row }">
+{% if module.has_status_toggles %}
+{% for toggle in module.status_toggles %}
+        <!-- {{ toggle['label'] }} 切换按钮 -->
+        <el-button v-if="row.{{ toggle['field'] }} == 0" link type="{{ toggle['colors']['1'] }}" @click="handleToggle(row, '{{ toggle['field'] }}', 1)">{{ toggle['values']['1'] }}</el-button>
+        <el-button v-else link type="{{ toggle['colors']['0'] }}" @click="handleToggle(row, '{{ toggle['field'] }}', 0)">{{ toggle['values']['0'] }}</el-button>
+{% endfor %}
+{% endif %}
+        <el-button link type="primary" @click="listOperate(row, 1)">详情</el-button>
+        <el-button link type="primary" @click="listOperate(row, 2)">编辑</el-button>
+{% if module.single_operations.delete.enabled %}
+        <el-button link type="primary" @click="listOperate(row, 3)">删除</el-button>
+{% endif %}
+{% if module.single_operations.physical_delete.enabled %}
+        <el-button link type="primary" @click="handlePhysicalRemove(row)">彻底删除</el-button>
+{% endif %}
+      </template>
+    </G-table>
+
+    <!-- 分页 -->
+    <G-pagination v-model:page-no="page.current" v-model:page-size="page.size" :total="total" @get-list="getList" />
+{% if module.has_batch_operations and module.batch_operations["update"]["enabled"] %}
+
+    <!-- 批量更新弹窗 -->
+    <el-dialog title="批量更新" v-model="batchUpdateVisible" width="500px" @close="resetBatchUpdateForm">
+      <el-form :model="batchUpdateForm" label-width="auto">
+{% for f in module.batch_operations["update"]["fields"] %}
+        <el-form-item label="{{ f.label }}"{% if f.required %} required{% endif %}>
+{% if f.type == 'select' %}
+          <el-select v-model="batchUpdateForm.{{ f.name }}" placeholder="请选择" clearable style="width: 100%">
+{% for opt in f.options %}
+            <el-option label="{{ opt.label }}" :value="{{ opt.value }}" />
+{% endfor %}
+          </el-select>
+{% elif f.type == 'date' %}
+          <el-date-picker v-model="batchUpdateForm.{{ f.name }}" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" />
+{% elif f.type == 'textarea' %}
+          <el-input v-model="batchUpdateForm.{{ f.name }}" type="textarea" :rows="3" placeholder="请输入{{ f.label }}" />
+{% else %}
+          <el-input v-model="batchUpdateForm.{{ f.name }}" placeholder="请输入{{ f.label }}" />
+{% endif %}
+        </el-form-item>
+{% endfor %}
+      </el-form>
+      <template #footer>
+        <el-button @click="batchUpdateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchUpdateLoading" @click="submitBatchUpdate">确认</el-button>
+      </template>
+    </el-dialog>
+{% endif %}
+
+    <!-- E2E 测试专用隐藏导航按钮 -->
+    <el-button data-testid="nav-{{ module.code }}-add-or-edit" style="display:none" @click="navToAddOrEdit()" />
+  </div>
+
+  <{{ module.code_pascal }}AddOrEdit v-else-if="isType == 2" :id="editId" @call-back-data="listAddOrEdit" />
+  <{{ module.code_pascal }}Detail    v-else-if="isType == 3" :id="editId" @call-back-data="listAddOrEdit" />
+</template>
+
+<script setup>
+import { reactive, toRefs, onMounted, ref } from "vue"
+import { ElMessage, ElMessageBox } from "element-plus"
+import api from "@/service/{{ module.domain }}/{{ module.code }}.js"
+import fileExport from "@/common/utils/fileExport"
+import {{ module.code_pascal }}AddOrEdit from "./{{ module.code }}-add-or-edit.vue"
+import {{ module.code_pascal }}Detail from "./{{ module.code }}-detail.vue"
+
+const state = reactive({
+  isType: 1,
+  editId: "",
+  loading: false,
+  total: 0,
+  page: { current: 1, size: 10 },
+  selectIds: [],
+  formData: {
+{% for field in fields %}{% if field.type == 'date' or field.type == 'datetime' %}    {{ field.name }}: [],
+{% else %}    {{ field.name }}: "",
+{% endif %}{% endfor %}  },
+  formDataInfo: [
+{% for field in fields %}{% if field.type == 'select' %}    { label: "{{ field.label }}", prop: "{{ field.name }}", type: "select", span: 4{% if field.options %}, options: {{ field.options_json }}{% endif %} },
+{% elif field.type == 'date' or field.type == 'datetime' %}    { label: "{{ field.label }}", prop: "{{ field.name }}", type: "date", span: 8, dateInfo: { type: "daterange", format: "YYYY-MM-DD", vFormat: "YYYY-MM-DD" } },
+{% elif field.type == 'date-year' %}    { label: "{{ field.label }}", prop: "{{ field.name }}", type: "input", span: 4 },
+{% else %}    { label: "{{ field.label }}", prop: "{{ field.name }}", type: "input", span: 6 },
+{% endif %}{% endfor %}  ],
+  originHeader: [
+{% for field in fields %}{% if not field.generated %}    { label: "{{ field.label }}", prop: "{{ field.name }}"{% if field.type == 'select' and field.options %}, type: "slot"{% endif %} },
+{% endif %}{% endfor %}    { label: "创建时间", prop: "createTime" },
+  ],
+  tableHeader: []
+})
+
+const tableData = ref([])
+const refGtable = ref(null)
+const { isType, editId, loading, total, page, selectIds, formData, formDataInfo, originHeader, tableHeader } = toRefs(state)
+
+onMounted(() => {
+  state.tableHeader = state.originHeader
+  getList()
+})
+
+const getList = () => {
+  state.loading = true
+  const params = {
+    ...state.formData,
+    current: state.page.current,
+    size: state.page.size
+  }
+{% for field in fields %}{% if field.type == 'date' or field.type == 'datetime' %}
+  // {{ field.label }}: date range -> Begin/End
+  if (state.formData.{{ field.name }} && state.formData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = state.formData.{{ field.name }}[0]
+    params.{{ field.name }}End = state.formData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.getList(params).then((res) => {
+    tableData.value = res.records || []
+    state.total = res.total || 0
+  }).finally(() => {
+    state.loading = false
+  })
+}
+
+const listSearch = () => {
+  state.page.current = 1
+  getList()
+}
+
+const topOperate = (val, arg) => {
+  if (val == 1) {
+    state.editId = ""
+    state.isType = 2
+  } else if (val == 7) {
+    getList()
+  } else if (val == 8) {
+    state.tableHeader = arg
+  }
+}
+
+const listOperate = (row, type) => {
+  if (type == 1) {
+    state.editId = row.id
+    state.isType = 3
+  } else if (type == 2) {
+    state.editId = row.id
+    state.isType = 2
+  } else if (type == 3) {
+    delBatch([row.id])
+  }
+}
+
+const delBatch = (ids) => {
+  ElMessageBox.confirm("确认删除?", "提示", { type: "warning" }).then(() => {
+    api.remove(ids).then(() => {
+      ElMessage.success("删除成功")
+      getList()
+    })
+  })
+}
+
+const handleExport = () => {
+  const params = { ...state.formData }
+{% for field in fields %}{% if field.type == 'date' or field.type == 'datetime' %}
+  if (state.formData.{{ field.name }} && state.formData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = state.formData.{{ field.name }}[0]
+    params.{{ field.name }}End = state.formData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.exportData(params).then((res) => {
+    fileExport(res.data, "xlsx", "{{ module.name }}列表")
+  })
+}
+
+const listAddOrEdit = (val) => {
+  state.isType = 1
+  if (val === 1) getList()
+}
+
+const navToAddOrEdit = () => { state.editId = ""; state.isType = 2 }
+{% if module.has_status_toggles %}
+
+// 状态切换配置
+const statusToggles = {{ module.status_toggles | tojson }}
+
+// 状态切换
+const handleToggle = (row, field, value) => {
+  const toggle = statusToggles.find(t => t.field === field)
+  const valueLabel = toggle.values[value] || value
+  ElMessageBox.confirm(`确定要${valueLabel}吗？`, '提示', { type: 'warning' }).then(() => {
+    api.toggle({ id: row.id, field, value }).then(() => {
+      ElMessage.success('操作成功')
+      getList()
+    })
+  })
+}
+{% endif %}
+{% if module.has_batch_operations %}
+
+// 多选处理（跨页保留）
+const handleSelectionChange = (selection) => {
+  state.selectIds = selection.map(item => item.id)
+}
+
+// 批量删除
+const handleBatchDelete = () => {
+  if (state.selectIds.length === 0) {
+    ElMessage.warning('请先选择要删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认删除选中的 ${state.selectIds.length} 条记录?`, '提示', { type: 'warning' }).then(() => {
+    api.batchDelete(state.selectIds).then(() => {
+      ElMessage.success('删除成功')
+      state.selectIds = []
+      refGtable.value.clearSelection()
+      getList()
+    })
+  })
+}
+
+// 彻底删除（物理删除）
+const handlePhysicalRemove = (row) => {
+  ElMessageBox.confirm('彻底删除将无法恢复，确认删除?', '警告', { type: 'warning' }).then(() => {
+    api.physicalRemove([row.id]).then(() => {
+      ElMessage.success('彻底删除成功')
+      getList()
+    })
+  })
+}
+
+// 批量彻底删除
+const handleBatchPhysicalDelete = () => {
+  if (state.selectIds.length === 0) {
+    ElMessage.warning('请先选择要彻底删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`彻底删除将无法恢复，确认删除选中的 ${state.selectIds.length} 条记录?`, '警告', { type: 'warning' }).then(() => {
+    api.batchPhysicalDelete(state.selectIds).then(() => {
+      ElMessage.success('批量彻底删除成功')
+      state.selectIds = []
+      refGtable.value.clearSelection()
+      getList()
+    })
+  })
+}
+
+// 批量更新（弹窗模式）
+const batchUpdateVisible = ref(false)
+const batchUpdateLoading = ref(false)
+const batchUpdateForm = reactive({
+{% for f in module.batch_operations["update"]["fields"] %}
+  {{ f.name }}: null,
+{% endfor %}
+})
+
+const openBatchUpdateDialog = () => {
+  if (state.selectIds.length === 0) {
+    ElMessage.warning('请先选择要操作的记录')
+    return
+  }
+  batchUpdateVisible.value = true
+}
+
+const resetBatchUpdateForm = () => {
+{% for f in module.batch_operations["update"]["fields"] %}
+  batchUpdateForm.{{ f.name }} = null
+{% endfor %}
+}
+
+const submitBatchUpdate = () => {
+  const data = {}
+{% for f in module.batch_operations["update"]["fields"] %}
+  if (batchUpdateForm.{{ f.name }} !== null && batchUpdateForm.{{ f.name }} !== '') {
+    data['{{ f.name }}'] = batchUpdateForm.{{ f.name }}
+  }
+{% endfor %}
+  if (Object.keys(data).length === 0) {
+    ElMessage.warning('请至少填写一个字段')
+    return
+  }
+  batchUpdateLoading.value = true
+  api.batchUpdate({ ids: state.selectIds, data }).then(() => {
+    ElMessage.success('批量更新成功')
+    batchUpdateVisible.value = false
+    resetBatchUpdateForm()
+    state.selectIds = []
+    refGtable.value.clearSelection()
+    getList()
+  }).finally(() => {
+    batchUpdateLoading.value = false
+  })
+}
+{% endif %}
+</script>
+
+<style lang="scss" scoped>
+.container {
+  padding: 20px;
+}
+</style>

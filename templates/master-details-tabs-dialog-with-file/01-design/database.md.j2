@@ -1,0 +1,76 @@
+---
+name: {{ module.code_pascal | upper }} Database Design Standards (Cognitive Optimized)
+description: {{ module.name }}数据库设计（主表 + {{ detail_modules | length }} 个明细表）。
+---
+
+# {{ module.name }}数据库设计
+
+## 1. 表结构概览
+
+| 表名 (Table) | 说明 (Description) | 备注 |
+| :--- | :--- | :--- |
+| `{{ master_module.table_name }}` | {{ master_module.name }}主表 | 核心业务表 |
+{% for dm in detail_modules %}
+| `{{ dm.table_name }}` | {{ dm.name }}明细表 | 1:N 关联 |
+{% endfor %}
+
+## 2. 详细设计
+
+### 2.1 {{ master_module.name }}表 (`{{ master_module.table_name }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **审计字段**: 包含 `create_dept` (数据权限核心)
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 | 范例 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 | |
+{% for field in master_fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} | |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 | 0 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 | |
+| `create_user` | BIGINT | 20 | Y | 创建人 | |
+| `create_time` | DATETIME | | Y | 创建时间 | |
+| `update_user` | BIGINT | 20 | N | 更新人 | |
+| `update_time` | DATETIME | | N | 更新时间 | |
+
+{% for dm in detail_modules %}
+### 2.{{ loop.index + 1 }} {{ dm.name }}表 (`{{ dm.table_name }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **外键**: `{{ dm.master_fk_column }}` → 主表 `id`
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 | 范例 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 | |
+| `{{ dm.master_fk_column }}` | BIGINT | 20 | Y | 关联{{ master_module.name }}ID | |
+{% for field in dm.fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} | |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 | 0 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 | |
+| `create_user` | BIGINT | 20 | Y | 创建人 | |
+| `create_time` | DATETIME | | Y | 创建时间 | |
+| `update_user` | BIGINT | 20 | N | 更新人 | |
+| `update_time` | DATETIME | | N | 更新时间 | |
+
+{% endfor %}
+
+## 3. 表关系图
+
+```
+{{ master_module.table_name }}（主表）
+{% for dm in detail_modules %}  └─── 1:N ──→ {{ dm.table_name }}（{{ dm.name }}）
+              外键: {{ dm.master_fk_column }} | 索引: idx_{{ dm.master_fk_column }}
+{% endfor %}
+```
+
+## 4. 级联删除策略
+
+删除主表记录时，先逻辑删除所有明细表，再删主表：
+```sql
+{% for dm in detail_modules %}
+UPDATE {{ dm.table_name }} SET is_deleted = 1 WHERE {{ dm.master_fk_column }} = #{id};
+{% endfor %}
+UPDATE {{ master_module.table_name }} SET is_deleted = 1 WHERE id = #{id};
+```

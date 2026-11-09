@@ -1,0 +1,187 @@
+// ============================================================
+// 脚本名称: auth.setup.js
+// 作用: Playwright 全局登录态初始化（自动刷新 Token）
+//
+// 【执行策略】
+//   1. 从 .agent/.env 读取 BEARER_TOKEN，解析 JWT 过期时间
+//   2. Token 有效（未过期且 > 5 分钟）→ 直接复用
+//   3. Token 过期或缺失 → 自动调 AUTH_API_URL/oauth/token 续期
+//      → 将新 Token 写回 .agent/.env
+//   4. storageState 在 30 分钟内有效 → 跳过浏览器注入（加速）
+//   5. 注入 Token 到 localStorage["system"] 保存 storageState
+// ============================================================
+
+const { chromium } = require('@playwright/test');
+const path = require('path');
+const fs   = require('fs');
+const http = require('http');
+
+// .agent/.env 路径（04-page-scripts/ 上 4 级到 .agent/）
+const AGENT_ENV_PATH = path.resolve(__dirname, '../../../../.env');
+
+// ─── 工具函数 ─────────────────────────────────────────────────
+
+function loadEnv(envPath) {
+  const env = {};
+  if (!fs.existsSync(envPath)) return env;
+  fs.readFileSync(envPath, 'utf-8').split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const idx = trimmed.indexOf('=');
+    if (idx > 0) {
+      env[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+    }
+  });
+  return env;
+}
+
+function parseJwtExpiry(token) {
+  const jwt = (token || '').replace(/^Bearer\s+/i, '').trim();
+  const parts = jwt.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+    return payload.exp ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isTokenValid(token) {
+  const expMs = parseJwtExpiry(token);
+  if (!expMs) return false;
+  return expMs - Date.now() > 5 * 60 * 1000; // 剩余 > 5 分钟
+}
+
+function refreshToken(authApiUrl, username, password) {
+  return new Promise((resolve, reject) => {
+    const params = new URLSearchParams({
+      grant_type:    'password',
+      client_id:     'layer',
+      client_secret: 'sys',
+      username,
+      password,
+    });
+    const fullUrl = `${authApiUrl}/oauth/token?${params.toString()}`;
+    const parsed  = new URL(fullUrl);
+    const options = {
+      hostname: parsed.hostname,
+      port:     parseInt(parsed.port) || 80,
+      path:     parsed.pathname + parsed.search,
+      method:   'POST',
+      headers:  { 'Content-Length': '0', 'Accept': 'application/json' },
+    };
+    const req = http.request(options, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          if (data.data && data.data.authorization) {
+            resolve(data.data.authorization);
+          } else {
+            reject(new Error(`Auth API 返回异常: ${body.slice(0, 300)}`));
+          }
+        } catch (e) {
+          reject(new Error(`解析失败: ${e.message}, body=${body.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function writeTokenToEnv(envPath, newToken) {
+  if (!fs.existsSync(envPath)) return;
+  let content = fs.readFileSync(envPath, 'utf-8');
+  if (/^BEARER_TOKEN=.*/m.test(content)) {
+    content = content.replace(/^BEARER_TOKEN=.*$/m, `BEARER_TOKEN=${newToken}`);
+  } else {
+    content = content.trimEnd() + `\nBEARER_TOKEN=${newToken}\n`;
+  }
+  fs.writeFileSync(envPath, content, 'utf-8');
+}
+
+// ─── 主逻辑 ───────────────────────────────────────────────────
+
+module.exports = async function globalSetup() {
+  const env        = loadEnv(AGENT_ENV_PATH);
+  const baseURL    = env.BASE_URL    || 'http://localhost:7080';
+  const authApiUrl = env.AUTH_API_URL || 'http://localhost:9070/api/layer/v1/auth-service';
+  const authDir    = path.resolve(__dirname, '.auth');
+  const stateFile  = path.join(authDir, 'state.json');
+
+  if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+
+  // Step 1: 获取有效 Token（自动刷新）
+  let activeToken = process.env.TEST_ROLE_TOKEN || env.BEARER_TOKEN || '';
+
+  if (!isTokenValid(activeToken)) {
+    const username = env.LOGIN_USER || 'admin';
+    const password = env.LOGIN_PASS || '';
+    console.log(`[auth.setup] Token 不存在或已过期，正在自动刷新... (user=${username})`);
+    try {
+      activeToken = await refreshToken(authApiUrl, username, password);
+      writeTokenToEnv(AGENT_ENV_PATH, activeToken);
+      if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile); // 强制重新注入
+      console.log('[auth.setup] ✅ Token 自动刷新成功，已写回 .env');
+    } catch (err) {
+      console.warn(`[auth.setup] ⚠️  Token 刷新失败: ${err.message}`);
+      console.warn('[auth.setup] ⚠️  将尝试使用旧 Token 继续...');
+    }
+  } else {
+    const expMs     = parseJwtExpiry(activeToken);
+    const remainMin = expMs ? Math.round((expMs - Date.now()) / 60000) : '?';
+    console.log(`[auth.setup] Token 有效，剩余约 ${remainMin} 分钟`);
+  }
+
+  // Step 2: 检查 storageState 是否仍在有效期（30 分钟内可复用）
+  if (fs.existsSync(stateFile)) {
+    const ageMin = (Date.now() - fs.statSync(stateFile).mtimeMs) / 60000;
+    if (ageMin < 30) {
+      console.log(`[auth.setup] storageState 仍新鲜（${Math.round(ageMin)} 分钟前），跳过重新注入。`);
+      return;
+    }
+  }
+
+  // Step 3: 注入 Token 到浏览器 localStorage
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page    = await context.newPage();
+
+  if (activeToken) {
+    console.log('[auth.setup] 注入 Token 到 localStorage...');
+    await page.goto(baseURL, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.evaluate((token) => {
+      localStorage.setItem('system', JSON.stringify({
+        token,
+        isLogin:  true,
+        userInfo: { userName: 'TestUser', nickName: '测试用户' },
+        button:   ['*'],
+        menuTree: [],
+        dictData: {},
+        rememberChecked: true,
+      }));
+    }, activeToken);
+    console.log('[auth.setup] ✅ Token 注入成功');
+  } else {
+    // 备用: UI 登录（需验证码可识别）
+    console.log('[auth.setup] ⚠️  无可用 Token，尝试 UI 登录...');
+    await page.goto(`${baseURL}/login`, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.fill('input[placeholder="请输入用户名"]', env.LOGIN_USER || 'admin');
+    await page.fill('input[placeholder="请输入密码"]',   env.LOGIN_PASS || '');
+    console.log('[auth.setup] ⏳ 等待 10 秒（如需手动输入验证码）...');
+    await page.waitForTimeout(10000);
+    try {
+      await page.click('button:has-text("立即登录")');
+      await page.waitForURL(`${baseURL}/home`, { timeout: 8000 });
+    } catch {
+      console.log('[auth.setup] ⚠️  UI 登录超时或失败');
+    }
+  }
+
+  await context.storageState({ path: stateFile });
+  console.log(`[auth.setup] ✅ storageState 已保存 → ${stateFile}`);
+  await browser.close();
+};

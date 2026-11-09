@@ -1,0 +1,56 @@
+-- =====================================================
+-- {{ module.name }} 模块数据库脚本
+-- 模块: {{ module.code }} ({{ module.domain }})
+-- 所属系统: {{ project.name }}
+-- =====================================================
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- 1. 清理旧表（先删从表，再删主表）
+-- ----------------------------
+DROP TABLE IF EXISTS `biz_{{ module.domain }}_{{ module.code }}_file`;
+DROP TABLE IF EXISTS `biz_{{ module.domain }}_{{ module.code }}`;
+
+-- ----------------------------
+-- 2. 创建主表结构
+-- ----------------------------
+CREATE TABLE `biz_{{ module.domain }}_{{ module.code }}` (
+  `id`           BIGINT       NOT NULL                   COMMENT '主键ID（雪花算法）',
+{% for field in fields %}
+  `{{ field.column_name }}`  {{ field.sql_type }}{% if field.sql_length %}({{ field.sql_length }}){% endif %} {% if field.required %}NOT NULL{% else %}DEFAULT NULL{% endif %} COMMENT '{{ field.label }}{% if field.required %}（必填）{% endif %}',
+{% endfor %}
+  `is_deleted`   INT          NOT NULL DEFAULT 0         COMMENT '逻辑删除：0=正常，1=已删除',
+  `create_time`  DATETIME     DEFAULT NULL               COMMENT '创建时间',
+  `create_user`  BIGINT       DEFAULT NULL               COMMENT '创建人ID',
+  `create_dept`  BIGINT       DEFAULT NULL               COMMENT '创建部门ID（数据权限）',
+  `update_time`  DATETIME     DEFAULT NULL               COMMENT '更新时间',
+  `update_user`  BIGINT       DEFAULT NULL               COMMENT '更新人ID',
+  PRIMARY KEY (`id`){% for field in fields %}{% if field.indexed %},
+  INDEX `idx_{{ field.column_name }}` (`{{ field.column_name }}`){% endif %}{% endfor %}
+
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{{ module.name }}主表';
+
+-- ----------------------------
+-- 3. 创建附件从表结构
+-- > 选项A（1:N独立附件表），依据 07-upload 规范
+-- ----------------------------
+CREATE TABLE `biz_{{ module.domain }}_{{ module.code }}_file` (
+  `id`                    BIGINT       NOT NULL                   COMMENT '主键ID（雪花算法）',
+  `{{ module.code }}_id`  BIGINT       NOT NULL                   COMMENT '关联{{ module.name }}主表ID',
+  `file_type`             VARCHAR(50)  DEFAULT NULL               COMMENT '附件类型：{% for ft in module.file_types %}{{ ft.code }}={{ ft.label }}{% if not loop.last %}/{% endif %}{% endfor %}',
+  `file_url`              VARCHAR(500) NOT NULL                   COMMENT 'MinIO文件绝对地址',
+  `file_name`             VARCHAR(200) DEFAULT NULL               COMMENT '原始文件名（前端回显）',
+  `is_deleted`            INT          NOT NULL DEFAULT 0         COMMENT '逻辑删除：0=正常，1=已删除',
+  `create_time`           DATETIME     DEFAULT NULL               COMMENT '创建时间',
+  `create_user`           BIGINT       DEFAULT NULL               COMMENT '创建人ID',
+  `create_dept`           BIGINT       DEFAULT NULL               COMMENT '创建部门ID',
+  `update_time`           DATETIME     DEFAULT NULL               COMMENT '更新时间',
+  `update_user`           BIGINT       DEFAULT NULL               COMMENT '更新人ID',
+  PRIMARY KEY (`id`),
+  KEY `idx_{{ module.code }}_id` (`{{ module.code }}_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{{ module.name }}附件从表';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+SELECT '✅ {{ module.code_pascal }} {{ module.name }}表结构创建完成' AS status;

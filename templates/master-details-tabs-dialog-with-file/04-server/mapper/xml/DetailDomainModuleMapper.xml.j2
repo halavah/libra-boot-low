@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="{{ project.group }}.layer.bis.{{ module.package_path }}.mapper.{{ module.domain_pascal }}{{ module.code_pascal }}Mapper">
+
+    <sql id="Base_Column_List">
+        t.id,
+        t.{{ module.master_fk_column }},
+{% for field in fields %}        t.{{ field.column_name }},
+
+{% endfor %}        t.create_dept,
+        t.create_time,
+        t.create_user,
+        t.update_time,
+        t.update_user,
+        t.is_deleted
+    </sql>
+
+    <sql id="Base_Where_Clause">
+        <where>
+            t.is_deleted = 0
+{% for field in fields %}
+            {% if field.type != 'date' and field.type != 'datetime' %}
+            <if test="param.{{ field.name }} != null{% if field.java_type == 'String' %} and param.{{ field.name }} != ''{% endif %}">
+{% if field.type == 'input' or field.type == 'textarea' %}
+                AND t.{{ field.column_name }} LIKE CONCAT('%', #{param.{{ field.name }}}, '%')
+{% elif field.type == 'select' or field.type == 'number' or field.type == 'date-year' or field.type == 'decimal' %}
+                AND t.{{ field.column_name }} = #{param.{{ field.name }}}
+{% endif %}
+            </if>
+            {% endif %}
+{% endfor %}
+            <if test="param.{{ module.master_fk }} != null">
+                AND t.{{ module.master_fk_column }} = #{param.{{ module.master_fk }}}
+            </if>
+{% for field in fields %}{% if field.type == 'date' or field.type == 'datetime' %}
+            <if test="param.{{ field.name }}Begin != null">
+                AND t.{{ field.column_name }} &gt;= #{param.{{ field.name }}Begin}
+            </if>
+            <if test="param.{{ field.name }}End != null">
+                AND t.{{ field.column_name }} &lt; DATE_ADD(#{param.{{ field.name }}End}, INTERVAL 1 DAY)
+            </if>
+{% endif %}{% endfor %}
+        </where>
+    </sql>
+
+    <select id="selectPageVo" resultType="{{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        {{ module.master_display_sql_expr | default('CAST(m.id AS CHAR)') }} AS masterName
+        FROM {{ module.table_name }} t
+        LEFT JOIN {{ master_module.table_name }} m ON t.{{ module.master_fk_column }} = m.id
+        <include refid="Base_Where_Clause"/>
+        ORDER BY t.create_time DESC
+    </select>
+
+    <select id="selectVoById" resultType="{{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        {{ module.master_display_sql_expr | default('CAST(m.id AS CHAR)') }} AS masterName
+        FROM {{ module.table_name }} t
+        LEFT JOIN {{ master_module.table_name }} m ON t.{{ module.master_fk_column }} = m.id
+        WHERE t.id = #{id}
+          AND t.is_deleted = 0
+    </select>
+
+    <delete id="physicalDeleteByIds">
+        DELETE FROM {{ module.table_name }} WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

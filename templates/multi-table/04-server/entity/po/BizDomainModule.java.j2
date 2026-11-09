@@ -1,0 +1,90 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po;
+
+import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+import java.io.Serializable;
+import java.math.BigDecimal;
+{% if has_date_field %}
+import java.time.LocalDate;
+{% endif %}
+import java.time.LocalDateTime;
+
+/**
+ * {{ module.name }} 实体类
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@EqualsAndHashCode(callSuper = false)
+@TableName("{{ module.table_name }}")
+public class Biz{{ module.domain_pascal }}{{ module.code_pascal }} implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @TableId(type = IdType.ASSIGN_ID)
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long id;
+
+{%- set toggle_fields = [] -%}
+{%- if module.status_toggles -%}
+{%- for toggle in module.status_toggles -%}
+{%- set _ = toggle_fields.append(toggle.field) -%}
+{%- endfor -%}
+{%- endif -%}
+{% for field in fields %}
+{%- if field.name not in toggle_fields %}
+    /**
+     * {{ field.label }}
+     */
+    private {{ field.java_type }} {{ field.name }};
+
+{% endif %}
+{% endfor %}
+{% if module.status_toggles %}
+{% for toggle in module.status_toggles %}
+    /**
+     * {{ toggle.label }}
+     */
+    private Integer {{ toggle.field }};
+
+{% endfor %}
+{% endif %}
+    /**
+     * 逻辑删除：0=正常，1=已删除
+     */
+    @TableLogic
+    private Integer isDeleted;
+
+    /**
+     * 创建时间
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * 创建人ID
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long createUser;
+
+    /**
+     * 创建部门ID（数据权限）
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long createDept;
+
+    /**
+     * 更新时间
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * 更新人ID
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long updateUser;
+}

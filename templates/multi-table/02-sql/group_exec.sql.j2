@@ -1,0 +1,53 @@
+-- =====================================================
+-- {{ group_name }} 模块数据库脚本
+-- 子表数量: {{ sub_tables | length }}
+-- 生成时间: {{ generated_date }}
+-- =====================================================
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- 删除旧表（子表无外键，可按任意顺序删除）
+-- ----------------------------
+{% for st in sub_tables | reverse %}
+DROP TABLE IF EXISTS `{{ st.module.table_name }}`;
+{% endfor %}
+
+-- ----------------------------
+-- 创建子表
+-- ----------------------------
+{% for st in sub_tables %}
+
+-- {{ st.module.name }}（{{ st.module.code }}）
+CREATE TABLE `{{ st.module.table_name }}` (
+  `id`          BIGINT       NOT NULL                    COMMENT '主键ID（雪花算法）',
+{% for field in st.fields %}{% if field.type == 'input' or field.type == 'textarea' %}
+  `{{ field.column_name }}`{% if field.required %}  VARCHAR(200) NOT NULL                   {% else %}  VARCHAR(200) DEFAULT NULL               {% endif %} COMMENT '{{ field.label }}',
+{% elif field.type == 'select' %}
+  `{{ field.column_name }}`  INT          DEFAULT NULL                    COMMENT '{{ field.label }}{% if field.options %}: {% for opt in field.options %}{{ opt.value }}={{ opt.label }}{% if not loop.last %},{% endif %}{% endfor %}{% endif %}',
+{% elif field.type == 'number' %}
+  `{{ field.column_name }}`  INT          DEFAULT NULL                    COMMENT '{{ field.label }}',
+{% elif field.type == 'decimal' %}
+  `{{ field.column_name }}`  DECIMAL(10,2) DEFAULT NULL                  COMMENT '{{ field.label }}',
+{% elif field.type == 'date' %}
+  `{{ field.column_name }}`  DATE         DEFAULT NULL                    COMMENT '{{ field.label }}（yyyy-MM-dd）',
+{% elif field.type == 'datetime' %}
+  `{{ field.column_name }}`  DATETIME     DEFAULT NULL                    COMMENT '{{ field.label }}（yyyy-MM-dd HH:mm:ss）',
+{% elif field.type == 'date-year' %}
+  `{{ field.column_name }}`  INT          DEFAULT NULL                    COMMENT '{{ field.label }}（年份整数）',
+{% else %}
+  `{{ field.column_name }}`  VARCHAR(200) DEFAULT NULL                   COMMENT '{{ field.label }}',
+{% endif %}{% endfor %}
+  `is_deleted`  INT          NOT NULL DEFAULT 0           COMMENT '逻辑删除：0=正常，1=已删除',
+  `create_time` DATETIME     DEFAULT NULL                 COMMENT '创建时间',
+  `create_user` BIGINT       DEFAULT NULL                 COMMENT '创建人ID',
+  `create_dept` BIGINT       DEFAULT NULL                 COMMENT '创建部门ID（数据权限）',
+  `update_time` DATETIME     DEFAULT NULL                 COMMENT '更新时间',
+  `update_user` BIGINT       DEFAULT NULL                 COMMENT '更新人ID',
+  PRIMARY KEY (`id`)
+{% for field in st.fields %}{% if field.filterable and field.type != 'date' and field.type != 'datetime' %}  ,INDEX `idx_{{ field.column_name }}` (`{{ field.column_name }}`)
+{% endif %}{% endfor %}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{{ st.module.name }}';
+{% endfor %}
+
+SET FOREIGN_KEY_CHECKS = 1;
+SELECT '✅ {{ group_name }} 表结构创建完成（{{ sub_tables | length }} 个子表）' AS status;

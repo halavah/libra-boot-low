@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+out/
+output/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# .claude 内部产物
+.claude/**/__pycache__/
+.venv-publish/

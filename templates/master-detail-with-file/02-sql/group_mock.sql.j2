@@ -1,0 +1,124 @@
+-- =====================================================
+-- {{ group_name }} 模块测试数据脚本
+-- 主表25条 + 明细25条 + 附件测试数据（按配置可选）
+-- =====================================================
+SET NAMES utf8mb4;
+
+-- ----------------------------
+-- 0. 清空测试数据（附件表按开关独立处理）
+-- ----------------------------
+{% if has_detail_file %}
+TRUNCATE TABLE `{{ detail_module.table_name }}_file`;
+{% endif %}
+TRUNCATE TABLE `{{ detail_module.table_name }}`;
+{% if has_master_file %}
+TRUNCATE TABLE `{{ master_module.table_name }}_file`;
+{% endif %}
+TRUNCATE TABLE `{{ master_module.table_name }}`;
+
+-- ----------------------------
+-- 1. 插入主表测试数据（{{ master_module.name }}，25条）
+-- 年份分布: 1-9条(2023), 10-18条(2024), 19-25条(2025)
+-- ----------------------------
+INSERT INTO `{{ master_module.table_name }}` (
+  `id`{% for field in master_fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+({{ 1000000 + i }}, {% for field in master_fields %}
+{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'
+{% elif field.type == 'select' and field.options and (field.options | length) > 0 %}{{ field.options[row_idx % (field.options | length)].value }}
+{% elif field.type == 'date-year' %}{{ yr }}
+{% elif field.type == 'date-month' %}'{{ yr }}-{{ "%02d"|format(mo) }}'
+{% elif field.type == 'number' %}{{ i * 10 }}
+{% elif field.type == 'decimal' %}{{ i }}.00
+{% elif field.type == 'date' %}'{{ yr }}-{{ "%02d"|format(mo) }}-01'
+{% elif field.type == 'datetime' %}'{{ yr }}-{{ "%02d"|format(mo) }}-01 10:00:00'
+{% else %}NULL
+{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}, 0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+{% endfor %}
+
+{% set mft_count = master_file_types | default([]) | length %}
+{% if has_master_file and mft_count > 0 %}
+-- ----------------------------
+-- 2. 插入主表附件测试数据（6条，挂在前3条主表记录下，每条2个附件）
+-- ----------------------------
+{% set mft0 = master_file_types[0] %}
+{% set mft1 = master_file_types[1 % mft_count] if mft_count > 1 else master_file_types[0] %}
+INSERT INTO `{{ master_module.table_name }}_file` (
+  `id`, `{{ master_module.code }}_id`, `file_type`, `file_url`, `file_name`,
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+(310000001, 1000001, '{{ mft0.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/master/m1_1.pdf', '{{ master_module.name }}1_{{ mft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(310000002, 1000001, '{{ mft1.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/master/m1_2.jpg', '{{ master_module.name }}1_{{ mft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(310000003, 1000002, '{{ mft0.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/master/m2_1.pdf', '{{ master_module.name }}2_{{ mft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(310000004, 1000002, '{{ mft1.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/master/m2_2.jpg', '{{ master_module.name }}2_{{ mft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(310000005, 1000003, '{{ mft0.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/master/m3_1.pdf', '{{ master_module.name }}3_{{ mft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(310000006, 1000003, '{{ mft1.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/master/m3_2.jpg', '{{ master_module.name }}3_{{ mft1.label }}.jpg', 0, NOW(), 1001, 2001);
+
+{% else %}
+-- ----------------------------
+-- 2. 跳过主表附件数据（master.file_types 为空或未开启）
+-- ----------------------------
+{% endif %}
+
+-- ----------------------------
+-- 3. 插入明细表测试数据（{{ detail_module.name }}，25条，每条关联一个主表记录）
+-- ----------------------------
+INSERT INTO `{{ detail_module.table_name }}` (
+  `id`, `{{ detail_module.master_fk_column }}`{% for field in detail_fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+({{ 2000000 + i }}, {{ 1000000 + i }}, {% for field in detail_fields %}
+{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'
+{% elif field.type == 'select' and field.options and (field.options | length) > 0 %}{{ field.options[row_idx % (field.options | length)].value }}
+{% elif field.type == 'date-year' %}{{ yr }}
+{% elif field.type == 'date-month' %}'{{ yr }}-{{ "%02d"|format(mo) }}'
+{% elif field.type == 'number' %}{{ i * 10 }}
+{% elif field.type == 'decimal' %}{{ i }}.00
+{% elif field.type == 'date' %}'{{ yr }}-{{ "%02d"|format(mo) }}-01'
+{% elif field.type == 'datetime' %}'{{ yr }}-{{ "%02d"|format(mo) }}-01 10:00:00'
+{% else %}NULL
+{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}, 0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+{% endfor %}
+
+{% set dft_count = detail_file_types | default([]) | length %}
+{% if has_detail_file and dft_count > 0 %}
+-- ----------------------------
+-- 4. 插入明细附件测试数据（6条，挂在前3条明细记录下，每条2个附件）
+-- ----------------------------
+{% set dft0 = detail_file_types[0] %}
+{% set dft1 = detail_file_types[1 % dft_count] if dft_count > 1 else detail_file_types[0] %}
+INSERT INTO `{{ detail_module.table_name }}_file` (
+  `id`, `{{ detail_module.code }}_id`, `file_type`, `file_url`, `file_name`,
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+(300000001, 2000001, '{{ dft0.code }}', 'http://localhost:9000/task/{{ detail_module.domain }}/{{ detail_module.code }}/f1_1.pdf', '{{ detail_module.name }}1_{{ dft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(300000002, 2000001, '{{ dft1.code }}', 'http://localhost:9000/task/{{ detail_module.domain }}/{{ detail_module.code }}/f1_2.jpg', '{{ detail_module.name }}1_{{ dft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(300000003, 2000002, '{{ dft0.code }}', 'http://localhost:9000/task/{{ detail_module.domain }}/{{ detail_module.code }}/f2_1.pdf', '{{ detail_module.name }}2_{{ dft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(300000004, 2000002, '{{ dft1.code }}', 'http://localhost:9000/task/{{ detail_module.domain }}/{{ detail_module.code }}/f2_2.jpg', '{{ detail_module.name }}2_{{ dft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(300000005, 2000003, '{{ dft0.code }}', 'http://localhost:9000/task/{{ detail_module.domain }}/{{ detail_module.code }}/f3_1.pdf', '{{ detail_module.name }}3_{{ dft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(300000006, 2000003, '{{ dft1.code }}', 'http://localhost:9000/task/{{ detail_module.domain }}/{{ detail_module.code }}/f3_2.jpg', '{{ detail_module.name }}3_{{ dft1.label }}.jpg', 0, NOW(), 1001, 2001);
+
+{% else %}
+-- ----------------------------
+-- 4. 跳过明细附件数据（detail.file_types 为空或未开启）
+-- ----------------------------
+{% endif %}
+
+{% if has_master_file and mft_count > 0 and has_detail_file and dft_count > 0 %}
+SELECT '✅ {{ group_name }} 测试数据导入完成（主表25条 + 主表附件6条 + 明细25条 + 明细附件6条）' AS status;
+{% elif has_master_file and mft_count > 0 and (not has_detail_file or dft_count == 0) %}
+SELECT '✅ {{ group_name }} 测试数据导入完成（主表25条 + 主表附件6条 + 明细25条 + 明细附件0条）' AS status;
+{% elif (not has_master_file or mft_count == 0) and has_detail_file and dft_count > 0 %}
+SELECT '✅ {{ group_name }} 测试数据导入完成（主表25条 + 明细25条 + 明细附件6条）' AS status;
+{% else %}
+SELECT '✅ {{ group_name }} 测试数据导入完成（主表25条 + 明细25条 + 附件0条）' AS status;
+{% endif %}

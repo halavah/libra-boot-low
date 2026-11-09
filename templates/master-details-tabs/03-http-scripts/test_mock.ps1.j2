@@ -1,0 +1,198 @@
+<#
+.SYNOPSIS
+    通用模块 - HTTP接口测试工具 (PowerShell 包装器)
+
+.DESCRIPTION
+    test_mock.py 的 Windows 包装器。
+    本脚本不含任何测试逻辑，职责单一：
+      1. 检查运行环境（Python 是否可用）
+      2. 展示交互菜单，引导用户选择测试模式
+      3. 通过正确的环境变量驱动 test_mock.py
+
+    ══════════════════════════════════════════════════════
+    【脚本定位】
+      03-http-scripts/test_mock.ps1 — test_mock.py 的 Windows 包装器
+      在整个测试链路中属于"入口层"：
+        开发者在 Windows 终端直接执行本脚本，
+        通过交互菜单选择测试模式，最终驱动 test_mock.py 完成接口验证。
+      是 L3 原子闭环验证在 Windows 平台的人工触发入口。
+
+    【设计思路】
+      1. 薄包装原则
+         PowerShell 脚本只做"启动器 + 菜单"，不重复实现业务逻辑。
+         测试逻辑全部在 test_mock.py 中，ps1 仅负责：
+           - 检查运行环境
+           - 展示交互菜单
+           - 将正确的环境变量传给 Python
+
+      2. 菜单 vs 直接执行
+         - 无参数启动：展示方框菜单，默认选项 0（全量执行）
+           直接回车即可完成最常用的"重置 DB + 全量测试"操作
+         - 有参数启动（$args.Count > 0）：跳过菜单，原样透传给 Python（自动化专用）
+
+      3. 用环境变量控制行为，而非 CLI 参数
+         test_mock.py 没有 argparse，只认环境变量：
+           $env:SKIP_DB_INIT = "1"   → 跳过数据库初始化
+           $env:BEARER_TOKEN = "xxx" → 注入认证令牌
+         菜单选项通过设置正确的环境变量 + 直接调用 Python 脚本来实现，
+         而不是传入 --test / --reset 等 Python 不认识的参数。
+
+      4. 选项 1（仅运行测试）的环境变量清理
+         设置 $env:SKIP_DB_INIT = "1" 后，用 try/finally 确保执行完毕后
+         一定清除该环境变量，避免污染当前 PowerShell 会话的后续操作。
+
+      5. 选项 2（仅重置DB）的特殊处理
+         test_mock.py 不负责"仅重置DB"，这个功能属于 run_mock.py。
+         选项 2 直接调用 run_mock.py 0 --yes，职责清晰，不绕弯。
+
+      6. 默认选项设计为 0（全量执行）
+         开发阶段最常见的操作就是"重置 DB + 跑全量测试"，
+         将其设为默认值（Enter 直接确认）最大化减少操作步骤。
+         IsNullOrWhiteSpace 判断：输入为空/空白时取默认值 "0"。
+
+      7. 菜单风格与 run_mock.py 统一
+         使用方框绘图字符（╔╠╚║═）渲染菜单，与 run_mock.py 的交互风格
+         保持视觉一致，提升工具链的整体专业感。
+
+      8. python3 / python 双探测
+         Windows 上部分安装方式只有 python，部分有 python3，
+         优先探测 python3，回退到 python，确保兼容性。
+
+    【执行流程】
+      启动
+        ↓ 定位脚本目录（$PSScriptRoot）
+        ↓ 检查 test_mock.py 是否存在
+        ↓ 探测 python3 / python 命令
+        ↓ 判断是否有命令行参数 $args.Count
+          ├─ 有参数 → 直接透传 @args 给 Python → 退出
+          └─ 无参数 → 显示方框交互菜单
+              ↓ 读取用户输入（默认值 "0"）
+              ├─ "0" → & $PythonCmd $ScriptPath（内部自动重置 DB）
+              ├─ "1" → $env:SKIP_DB_INIT="1" + try/finally + Python
+              ├─ "2" → & $PythonCmd $RunMockPath 0 --yes
+              └─ "b" → 退出
+
+    【调用关系】
+      ┌──────────────────────────────────────────────────────────┐
+      │  手动执行        .\test_mock.ps1                         │
+      │  手动执行        .\test_mock.ps1（选项1 → SKIP_DB_INIT） │
+      │  L3闭环脚本调用  $env:SKIP_DB_INIT="1"; python test_mock │
+      │                  （L3 直接调用 py，不经过本 ps1）        │
+      └──────────────────────────────────────────────────────────┘
+      本脚本内部触发：
+        选项0 → test_mock.py（内部再调 run_mock.py）
+        选项1 → test_mock.py（SKIP_DB_INIT=1，跳过 run_mock.py）
+        选项2 → run_mock.py 0 --yes（直接重置 DB，不跑测试）
+
+    【环境变量】
+      SKIP_DB_INIT=1   跳过数据库初始化（选项 1 时由本脚本设置，用后清除）
+      BEARER_TOKEN=xxx 注入认证令牌，也可在启动前预先 $env:BEARER_TOKEN 设置
+
+    【注意事项】
+      - 首次使用若遇执行策略限制，运行：
+          Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+      - 依赖安装：pip install requests
+      - 测试前确保后端服务已启动（默认端口 9072）
+      - 数据库配置位于 ../../../../.env
+    ══════════════════════════════════════════════════════
+#>
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+$ScriptPath  = Join-Path $PSScriptRoot "test_mock.py"
+$RunMockPath = Join-Path $PSScriptRoot "../02-sql-scripts/run_mock.py"
+
+if (-not (Test-Path $ScriptPath)) {
+    Write-Host "Error: Core script 'test_mock.py' not found." -ForegroundColor Red
+    Pause
+    exit 1
+}
+
+# ---- 探测 Python 命令（python3 优先，回退到 python）----
+$PythonCmd = $null
+if (Get-Command python3 -ErrorAction SilentlyContinue) {
+    $PythonCmd = "python3"
+} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    $PythonCmd = "python"
+} else {
+    Write-Host "Error: Python not found in PATH." -ForegroundColor Red
+    Pause
+    exit 1
+}
+
+# ---- 有参数时直接透传给 Python ----
+# 支持: $env:SKIP_DB_INIT="1"; .\test_mock.ps1
+# 支持: $env:BEARER_TOKEN="xxx"; .\test_mock.ps1
+if ($args.Count -gt 0) {
+    & $PythonCmd $ScriptPath @args
+    $ExitCode = $LASTEXITCODE
+    Write-Host ""
+    Write-Host "------------------------------------------"
+    if ($ExitCode -eq 0) {
+        Write-Host "Test Suite Completed." -ForegroundColor Green
+    } else {
+        Write-Host "Test Suite Completed with Errors (Exit Code: $ExitCode)." -ForegroundColor Red
+    }
+    Write-Host ""
+    exit $ExitCode
+}
+
+# ---- 无参数时显示方框交互菜单 ----
+Write-Host ""
+Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║  {{ module.code.upper() }} 模块 - HTTP接口测试工具      ║" -ForegroundColor Cyan
+Write-Host "╠════════════════════════════════════════╣" -ForegroundColor Cyan
+Write-Host "║  0. 全量执行 [Default]                 ║" -ForegroundColor Cyan
+Write-Host "║     （重置DB + 运行全部接口测试）       ║" -ForegroundColor Cyan
+Write-Host "║  1. 仅运行测试（不重置数据库）          ║" -ForegroundColor Cyan
+Write-Host "║  2. 仅重置数据库                        ║" -ForegroundColor Cyan
+Write-Host "║  b. 退出 (Back)                         ║" -ForegroundColor Cyan
+Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+$mode = Read-Host "  请选择 (Enter=默认选项0)"
+if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "0" }
+
+Write-Host ""
+
+switch ($mode) {
+    "0" {
+        # 全量：test_mock.py 内部自动调用 run_mock.py 重置 DB，再执行全部测试
+        & $PythonCmd $ScriptPath
+    }
+    "1" {
+        # 仅测试：通过环境变量跳过 DB 初始化
+        $env:SKIP_DB_INIT = "1"
+        try {
+            & $PythonCmd $ScriptPath
+        } finally {
+            Remove-Item Env:SKIP_DB_INIT -ErrorAction SilentlyContinue
+        }
+    }
+    "2" {
+        # 仅重置 DB：直接调用 run_mock.py
+        if (-not (Test-Path $RunMockPath)) {
+            Write-Host "Error: run_mock.py not found at $RunMockPath" -ForegroundColor Red
+            exit 1
+        }
+        & $PythonCmd $RunMockPath 0 --yes
+    }
+    { $_ -eq "b" -or $_ -eq "B" } {
+        Write-Host "  已退出。" -ForegroundColor DarkGray
+        exit 0
+    }
+    default {
+        Write-Host "  无效选项，退出。" -ForegroundColor Red
+        exit 1
+    }
+}
+
+$ExitCode = $LASTEXITCODE
+Write-Host ""
+Write-Host "------------------------------------------"
+if ($ExitCode -eq 0) {
+    Write-Host "Test Suite Completed." -ForegroundColor Green
+} else {
+    Write-Host "Test Suite Completed with Errors (Exit Code: $ExitCode)." -ForegroundColor Red
+}
+Write-Host ""
+Write-Host "Test Finished." -ForegroundColor Cyan

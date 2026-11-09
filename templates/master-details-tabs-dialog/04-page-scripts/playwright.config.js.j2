@@ -1,0 +1,77 @@
+// ============================================================
+// 脚本名称: playwright.config.js
+// 作用: Playwright 测试框架全局配置
+//
+// 【配置说明】
+//   testDir      - 测试文件在当前目录（04-page-scripts/index.test.js）
+//   globalSetup  - 测试启动前执行 auth.setup.js 注入登录态
+//   storageState - 复用 auth.setup.js 保存的 token（避免每次登录）
+//   reporter     - 双路报告: HTML 可视化 + JSON 机器可读，均输出到 ../05-out/{RUN_ID}/
+//   timeout      - 单个测试超时 30 秒
+//
+// 【依赖】
+//   全局安装: npm install -g @playwright/test
+//   首次执行: npx playwright install chromium
+// ============================================================
+
+const path = require('path');
+const fs   = require('fs');
+
+// 加载 .env（不依赖 dotenv 包，纯 Node 内置实现）
+const envPath = path.resolve(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  fs.readFileSync(envPath, 'utf-8').split('\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const idx = trimmed.indexOf('=');
+    if (idx > 0) {
+      const k = trimmed.slice(0, idx).trim();
+      const v = trimmed.slice(idx + 1).trim();
+      if (!process.env[k]) process.env[k] = v;
+    }
+  });
+}
+
+const { defineConfig } = require('@playwright/test');
+
+// 本次运行 ID（由 run_page_test.sh 设置，未设置时用时间戳兜底）
+const runId = process.env.TEST_RUN_ID || `run_${Date.now()}`;
+
+module.exports = defineConfig({
+  // 测试文件在当前目录（04-page-scripts/index.test.js）
+  testDir: path.resolve(__dirname, '.'),
+
+  // 全局 setup: 每次测试套件启动前执行一次登录/token 注入
+  globalSetup: path.resolve(__dirname, 'auth.setup.js'),
+
+  // 失败产物（截图/trace）统一输出到本次运行目录
+  outputDir: path.resolve(__dirname, '../05-out', runId, 'error-results'),
+
+  use: {
+    baseURL:      process.env.BASE_URL || 'http://localhost:7080',
+    storageState: path.resolve(__dirname, '.auth/state.json'),
+    headless:     true,
+    screenshot:   'only-on-failure',
+    video:        'off',
+    locale:       'zh-CN',
+    // HAR 录制：与截图同目录，不放 html-report/ 内（避免 HTML Reporter 清空时被删除）
+    recordHar: {
+      path:      path.resolve(__dirname, '../05-out', runId, 'api.har'),
+      urlFilter: '**/layer/**',
+    },
+  },
+
+  // 双路报告：HTML（人类可读）+ JSON（AI 可解析）
+  reporter: [
+    ['html', {
+      outputFolder: path.resolve(__dirname, '../05-out', runId, 'html-report'),
+      open: 'never',
+    }],
+    ['json', {
+      outputFile: path.resolve(__dirname, '../05-out', runId, 'html-report', 'results.json'),
+    }],
+  ],
+
+  timeout: 30000,
+  retries: 0,
+});

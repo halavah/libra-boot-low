@@ -1,0 +1,87 @@
+package {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.po;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * {{ module.name }} PO
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@TableName("biz_{{ module.domain }}_{{ module.code }}")
+public class Biz{{ module.domain_pascal }}{{ module.code_pascal }} {
+
+    /**
+     * 主键ID
+     */
+    @TableId(type = IdType.ASSIGN_ID)
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long id;
+
+{%- set toggle_fields = [] -%}
+{%- if module.status_toggles -%}
+{%- for toggle in module.status_toggles -%}
+{%- set _ = toggle_fields.append(toggle.field) -%}
+{%- endfor -%}
+{%- endif -%}
+{% for field in fields %}
+{%- if field.name not in toggle_fields %}
+    /**
+     * {{ field.label }}
+{% if field.required %}（必填）{% endif %}
+     */
+    private {{ field.java_type }} {{ field.name }};
+
+{% endif %}
+{% endfor %}
+{% if module.status_toggles %}
+{% for toggle in module.status_toggles %}
+    /**
+     * {{ toggle.label }}
+     */
+    private Integer {{ toggle.field }};
+
+{% endfor %}
+{% endif %}
+    /**
+     * 创建部门（数据权限）
+     */
+    private Long createDept;
+
+    /**
+     * 创建时间
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * 创建人
+     */
+    private Long createUser;
+
+    /**
+     * 更新时间
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * 更新人
+     */
+    private Long updateUser;
+
+    /**
+     * 逻辑删除：0=正常，1=已删除
+     */
+    @TableLogic
+    private Integer isDeleted;
+}

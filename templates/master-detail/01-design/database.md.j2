@@ -1,0 +1,84 @@
+---
+name: {{ module.code_pascal | upper }} Database Design Standards (Cognitive Optimized)
+description: {{ module.name }}数据库设计（主子表模式）。
+---
+
+# {{ module.name }}数据库设计
+
+## 1. 表结构概览
+
+| 表名 (Table) | 说明 (Description) | 备注 |
+| :--- | :--- | :--- |
+| `biz_{{ module.domain }}_{{ module.code }}_{{ module.master.code }}` | {{ module.master.name }}主表 | 核心业务表 |
+| `biz_{{ module.domain }}_{{ module.code }}_{{ module.detail.code }}` | {{ module.detail.name }}子表 | 1:N 关联 |
+
+## 2. 详细设计
+
+### 2.1 {{ module.master.name }}表 (`biz_{{ module.domain }}_{{ module.code }}_{{ module.master.code }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **审计字段**: 包含 `create_dept` (数据权限核心)
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 | 范例 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 | |
+{% for field in master_fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} | |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 | 0 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 | |
+| `create_user` | BIGINT | 20 | Y | 创建人 | |
+| `create_time` | DATETIME | | Y | 创建时间 | |
+| `update_user` | BIGINT | 20 | N | 更新人 | |
+| `update_time` | DATETIME | | N | 更新时间 | |
+
+### 2.2 {{ module.detail.name }}表 (`biz_{{ module.domain }}_{{ module.code }}_{{ module.detail.code }}`)
+
+*   **主键策略**: 雪花算法 (`ASSIGN_ID`)
+*   **外键**: `{{ module.detail.master_fk_column }}` → 主表 `id`
+
+| 字段名 | 类型 | 长度 | 必填 | 说明 | 范例 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | BIGINT | 20 | Y | 主键 | |
+| `{{ module.detail.master_fk_column }}` | BIGINT | 20 | Y | 关联{{ module.master.name }}ID | |
+{% for field in detail_fields %}
+| `{{ field.column_name }}` | {{ field.sql_type }} | {{ field.sql_length if field.sql_length else '-' }} | {{ 'Y' if field.required else 'N' }} | {{ field.label }} | |
+{% endfor %}
+| `is_deleted` | INT | 1 | Y | 逻辑删除 | 0 |
+| `create_dept` | BIGINT | 20 | Y | 创建部门 | |
+| `create_user` | BIGINT | 20 | Y | 创建人 | |
+| `create_time` | DATETIME | | Y | 创建时间 | |
+| `update_user` | BIGINT | 20 | N | 更新人 | |
+| `update_time` | DATETIME | | N | 更新时间 | |
+
+## 3. 索引设计
+
+### 3.1 主表索引
+{% for field in master_fields if field.filterable %}
+{{ loop.index }}.  `idx_{{ field.column_name }}` (`{{ field.column_name }}`)
+
+{% endfor %}
+
+### 3.2 子表索引
+1.  `idx_{{ module.detail.master_fk_column }}` (`{{ module.detail.master_fk_column }}`) — 外键索引
+{% set start_idx = 2 %}
+{% for field in detail_fields if field.filterable %}
+{{ start_idx }}.  `idx_{{ field.column_name }}` (`{{ field.column_name }}`)
+{% set start_idx = start_idx + 1 %}
+{% endfor %}
+
+## 4. 表关系图
+
+```
+biz_{{ module.domain }}_{{ module.code }}_{{ module.master.code }}（主表）
+  └─── 1:N ──→ biz_{{ module.domain }}_{{ module.code }}_{{ module.detail.code }}（子表）
+                 外键: {{ module.detail.master_fk_column }} | 索引: idx_{{ module.detail.master_fk_column }}
+```
+
+## 5. 级联删除策略
+
+删除主表记录时，**先删子表，再删主表**（逻辑删除）：
+```sql
+UPDATE biz_{{ module.domain }}_{{ module.code }}_{{ module.detail.code }} SET is_deleted = 1 WHERE {{ module.detail.master_fk_column }} = #{id};
+UPDATE biz_{{ module.domain }}_{{ module.code }}_{{ module.master.code }} SET is_deleted = 1 WHERE id = #{id};
+```

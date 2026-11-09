@@ -1,0 +1,68 @@
+<template>
+  <div class="container">
+    <el-scrollbar>
+      <G-back title="{{ master_module.name }}详情" @go-back="goBack"></G-back>
+      <el-card>
+        <el-descriptions :column="2" border>
+{% for field in master_fields %}{% if not field.generated %}
+{% if field.type == 'select' and field.options %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} get{{ field.name_pascal }}Label(info.{{ field.name }}) {{ '}}' }}</el-descriptions-item>
+{% else %}
+          <el-descriptions-item label="{{ field.label }}">{{ '{{' }} info.{{ field.name }} {{ '}}' }}</el-descriptions-item>
+{% endif %}
+{% endif %}{% endfor %}
+          <el-descriptions-item label="创建时间">{{ '{{' }} formatDateTime(info.createTime) {{ '}}' }}</el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+    </el-scrollbar>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import api from '@/service/{{ module.domain }}/{{ group_code }}.js'
+
+const props = defineProps({
+  id: { type: String, required: true }
+})
+
+const emit = defineEmits(['call-back-data'])
+
+const info = ref({})
+
+{% for field in master_fields %}{% if field.type == 'select' and field.options %}
+const {{ field.name }}Map = {
+{% for opt in field.options %}  '{{ opt.value }}': '{{ opt.label }}',
+{% endfor %}
+}
+const get{{ field.name_pascal }}Label = (val) => {
+  return {{ field.name }}Map[val] || val
+}
+{% endif %}{% endfor %}
+
+const getDetail = async () => {
+  if (!props.id) return
+  const res = await api.getMasterDetail(props.id)
+  info.value = res || {}
+}
+
+const goBack = () => {
+  emit('call-back-data', 0)
+}
+
+const formatDateTime = (val) => {
+  if (!val) return ''
+  return val.replace('T', ' ').substring(0, 19)
+}
+
+onMounted(() => {
+  getDetail()
+})
+</script>
+
+<style lang="scss" scoped>
+.container {
+  padding: 20px;
+  background-color: #fff;
+}
+</style>

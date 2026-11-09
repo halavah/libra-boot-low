@@ -1,0 +1,17 @@
+package {{ project.group }}.layer.module.{{ module.code | snake_to_camel }};
+
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+/**
+ * {{ module.name }} 模块独立启动类（双模拆模式件——拷至 src/main/java 对应包目录；合模式由聚合容器启动无需本类）
+ */
+@SpringBootApplication
+@MapperScan("{{ project.group }}.layer.module.{{ module.code | snake_to_camel }}.mapper")
+public class LibraModuleApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(LibraModuleApplication.class, args);
+    }
+}

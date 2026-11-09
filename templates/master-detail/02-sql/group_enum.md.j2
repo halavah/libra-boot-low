@@ -1,0 +1,109 @@
+# {{ group_name }} 枚举定义
+
+> **模块组**: {{ group_name }}（{{ master_module.domain_chinese }}）
+> **主表**: {{ master_module.name }}（{{ master_module.code }}）
+> **明细表**: {{ detail_module.name }}（{{ detail_module.code }}）
+
+---
+
+## 主表枚举 — {{ master_module.name }}
+
+{% set ns = namespace(count=0) %}
+{% for field in master_fields %}
+{% if field.type == 'select' and field.options %}
+{% set ns.count = ns.count + 1 %}
+### {{ ns.count }}. {{ field.label }}
+
+**字段**: `{{ master_module.table_name }}.{{ field.column_name }}`
+**字典Key**: `{{ master_module.domain }}_{{ master_module.code }}_{{ field.name }}`
+
+| 值 | 描述 | 说明 |
+|:---|:---|:---|
+{% for option in field.options %}
+| {{ option.value }} | {{ option.label }} |  |
+{% endfor %}
+
+---
+
+{% endif %}
+{% endfor %}
+
+## 明细表枚举 — {{ detail_module.name }}
+
+{% set ns2 = namespace(count=0) %}
+{% for field in detail_fields %}
+{% if field.type == 'select' and field.options %}
+{% set ns2.count = ns2.count + 1 %}
+### {{ ns2.count }}. {{ field.label }}
+
+**字段**: `{{ detail_module.table_name }}.{{ field.column_name }}`
+**字典Key**: `{{ detail_module.domain }}_{{ detail_module.code }}_{{ field.name }}`
+
+| 值 | 描述 | 说明 |
+|:---|:---|:---|
+{% for option in field.options %}
+| {{ option.value }} | {{ option.label }} |  |
+{% endfor %}
+
+---
+
+{% endif %}
+{% endfor %}
+
+## 使用说明
+
+### 前端（主表）
+
+```javascript
+{% for field in master_fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}
+const {{ field.name }}Options = [
+{% for option in field.options %}
+  { label: "{{ option.label }}", value: {{ option.value }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+];
+{% endif %}
+{% endfor %}
+```
+
+### 前端（明细表）
+
+```javascript
+{% for field in detail_fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}
+const {{ field.name }}Options = [
+{% for option in field.options %}
+  { label: "{{ option.label }}", value: {{ option.value }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+];
+{% endif %}
+{% endfor %}
+```
+
+### 后端使用
+
+```java
+// === 主表（{{ master_module.name }}）===
+{% for field in master_fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}枚举（Integer 类型）
+{% for option in field.options %}
+// {{ option.value }} = {{ option.label }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+// === 明细表（{{ detail_module.name }}）===
+{% for field in detail_fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}枚举（Integer 类型）
+{% for option in field.options %}
+// {{ option.value }} = {{ option.label }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+```

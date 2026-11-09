@@ -1,0 +1,1134 @@
+{% raw %}
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ============================================================
+# 脚本名称: run_page_test.py
+# 作用: 解析模块 Vue 页面，自动生成 Playwright 集成测试脚本
+#
+# 【自动检测逻辑（零硬编码）】
+#   脚本位于 04-page-scripts/，向上两级得到 {cat}/{mod}
+#   例: .agent/unit/demo/sample/04-page-scripts/
+#     → cat=demo, mod=sample
+#     → Vue 目录: {workspace}/app-web/src/views/demo/sample/
+#     → 服务文件: {workspace}/app-web/src/service/demo/sample.js
+#     → 输出目录: 当前目录（04-page-scripts/）
+#
+# 【解析内容】
+#   - <el-button @click="fn">文字</el-button> → 按钮列表
+#   - 函数体内 api.xxx() 调用 → API 映射
+#   - index.vue 中 v-else-if="isType == N" → 子组件视图映射
+#   - <el-dialog> 内的按钮 → 需要先打开 dialog
+#   - data-testid="nav-{fname}" 隐藏按钮 → 子视图导航入口
+#   - src/service/{cat}/{mod}.js → 各 API 方法对应的 URL 和 HTTP 方法
+#   - <el-dialog> 内的 <el-form-item> → 表单字段类型（用于填充）
+#
+# 【按钮分类 & 测试策略】
+#   ui          - 纯 UI 操作（无 API 调用）：点击 + 截图 + 页面不崩溃
+#   get_read    - GET 读操作（导出等）：Promise.all([waitForResponse, click()]) + status=200
+#   post_write  - POST 写操作（确定/提交）：DB 重置 + 填写全量表单 + waitForResponse + status=200
+#   post_delete - POST 删除（删除）：点击删除 → 点确认 → waitForResponse + status=200
+#
+# 【输出】
+#   index.test.js（与本脚本同目录）
+#   额外输出（由测试运行时生成）:
+#     ../05-out/{RUN_ID}/html-report/api-log.json  - 自定义 API 日志
+#     ../05-out/{RUN_ID}/html-report/api.har       - HAR 录制（由 playwright.config.js 配置）
+#
+# 【用法】
+#   python run_page_test.py           # 生成（已存在则跳过）
+#   python run_page_test.py --force   # 强制覆盖
+# ============================================================
+
+import os
+import re
+import argparse
+from pathlib import Path
+from datetime import datetime
+
+
+# ============================================================
+# 表单填充测试值
+# ============================================================
+TEST_FORM_VALUES = {
+    # sample-add-or-edit 表单（G-form-add）
+    'activityName':       '测试活动名称',
+    'organizer':          '测试主办方',
+    'responsiblePerson':  '测试负责人',
+    'responsiblePhone':   '13800000002',
+    'location':           '测试地点',
+    'content':            '测试活动内容',
+    'startTime':          '2026-03-01 10:00:00',
+    'endTime':            '2026-03-31 18:00:00',
+    'maxPeople':          '10',   # number 字段（整数）
+    # sample-signup 表单
+    'name':               '测试员A',
+    'phone':              '13800000001',
+    'signupTime':         '2026-03-01 10:00:00',
+    # sample-work 表单
+    'workTitle':          '测试作品标题',
+    'workContent':        '测试内容正文，用于自动化测试。',
+    'submitterName':      '测试员B',
+    'submitTime':         '2026-03-01 10:00:00',
+}
+_DEFAULT_TEXT = '测试数据'
+_DEFAULT_DATE = '2026-03-01 10:00:00'
+
+
+# ============================================================
+# 路径自动推导
+# ============================================================
+def detect_paths(script_dir: Path) -> dict:
+    """
+    从脚本所在路径自动推导模块信息和 Vue 目录。
+    04-page-scripts/ → mod_dir → cat_dir → unit_dir → .agent → workspace
+    """
+    mod_dir   = script_dir.parent          # .agent/unit/demo/sample
+    mod_name  = mod_dir.name               # sample
+    cat_dir   = mod_dir.parent             # .agent/unit/demo
+    cat_name  = cat_dir.name               # demo
+    unit_dir  = cat_dir.parent             # .agent/unit
+    agent_dir = unit_dir.parent            # .agent
+    workspace = agent_dir.parent           # /workspace/app
+
+    vue_dir      = workspace / 'app-web' / 'src' / 'views' / cat_name / mod_name
+    service_path = workspace / 'app-web' / 'src' / 'service' / cat_name / f'{mod_name}.js'
+    out_dir      = script_dir              # 输出到当前目录（04-page-scripts/）
+
+    return {
+        'mod_name':     mod_name,
+        'cat_name':     cat_name,
+        'module_path':  f'{cat_name}/{mod_name}',
+        'vue_dir':      vue_dir,
+        'service_path': service_path,
+        'out_dir':      out_dir,
+        'route_path':   f'/{cat_name}/{mod_name}/index',
+    }
+
+
+# ============================================================
+# index.vue 子组件 isType 映射解析
+# ============================================================
+def pascal_to_kebab(name: str) -> str:
+    """PascalCase → kebab-case。例: SampleSignup → sample-signup"""
+    return re.sub(r'(?<!^)(?=[A-Z])', '-', name).lower()
+
+
+def parse_index_subcomponents(vue_path: Path) -> dict:
+    """
+    解析 index.vue，提取各子组件对应的 isType 值。
+
+    识别模式: <ComponentName v-else-if="isType == N" .../>
+    返回: {'sample-signup.vue': 4, 'sample-work.vue': 5}
+    """
+    content = vue_path.read_text(encoding='utf-8')
+    template_m = re.search(r'<template>(.*)</template>', content, re.DOTALL)
+    if not template_m:
+        return {}
+    tpl = template_m.group(1)
+
+    result = {}
+    for m in re.finditer(
+        r'<([A-Z][A-Za-z0-9]+)\b[^>]*v-else-if=["\']isType\s*==\s*(\d+)["\']',
+        tpl
+    ):
+        component_name = m.group(1)       # e.g. SampleSignup
+        istype_val     = int(m.group(2))  # e.g. 4
+        kebab_name     = pascal_to_kebab(component_name) + '.vue'  # sample-signup.vue
+        result[kebab_name] = istype_val
+
+    return result
+
+
+# ============================================================
+# 服务文件解析：api method name → URL & HTTP method
+# ============================================================
+def parse_service_file(service_path: Path) -> dict:
+    """
+    解析 src/service/{cat}/{mod}.js，提取各 API 函数对应的 URL 和 HTTP 方法。
+
+    返回: { fn_name: { 'url': str, 'method': 'GET'|'POST' } }
+    例: {'exportSample': {'url': '/demo/sample/export', 'method': 'GET'}}
+    """
+    if not service_path.exists():
+        print(f"[parse-service] ⚠️  服务文件不存在: {service_path}")
+        return {}
+
+    content = service_path.read_text(encoding='utf-8')
+    result  = {}
+
+    # 写法 A: export const fnName = ... return http.verb(`${service}/path`, ...)
+    for m in re.finditer(
+        r'export const (\w+)\s*=.*?return http\.(\w+)\(`\$\{service\}(/[^`]+)`',
+        content, re.DOTALL
+    ):
+        fn_name, http_verb, url_path = m.groups()
+        http_method = 'GET' if http_verb in ('get', 'export') else 'POST'
+        result[fn_name] = {'url': url_path.strip(), 'method': http_method}
+
+    # 写法 B: export default { fnName: (...) => { return http.verb(`${service}/path`) } }
+    if not result:
+        for m in re.finditer(
+            r'(\w+)\s*:\s*\([^)]*\)\s*=>\s*\{[^{}]*return http\.(\w+)\(`\$\{service\}(/[^`]+)`',
+            content
+        ):
+            fn_name, http_verb, url_path = m.groups()
+            http_method = 'GET' if http_verb in ('get', 'export') else 'POST'
+            result[fn_name] = {'url': url_path.strip(), 'method': http_method}
+
+    return result
+
+
+# ============================================================
+# 表单字段解析：从 el-dialog 内的 el-form-item 提取字段信息
+# ============================================================
+def parse_form_fields(vue_path: Path) -> list:
+    """
+    解析 Vue 文件中 el-dialog 内的表单字段。
+
+    返回: [{ label, prop, type, readonly, placeholder, options, input_type }]
+    type 取值: 'input' | 'select' | 'date-picker' | 'radio-group' | 'upload'
+    """
+    content = vue_path.read_text(encoding='utf-8')
+    template_m = re.search(r'<template>(.*)</template>', content, re.DOTALL)
+    if not template_m:
+        return []
+    tpl = template_m.group(1)
+
+    # 找第一个 el-dialog（通常是新增/编辑弹窗）
+    dialog_m = re.search(r'<el-dialog\b[^>]*>(.*?)</el-dialog>', tpl, re.DOTALL)
+    if not dialog_m:
+        return []
+    dialog_content = dialog_m.group(1)
+
+    fields = []
+    # 匹配 el-form-item（支持 label/prop 顺序互换）
+    for item_m in re.finditer(
+        r'<el-form-item\b(?=[^>]*\blabel="([^"]+)")[^>]*\bprop="([^"]+)"[^>]*>(.*?)</el-form-item>',
+        dialog_content, re.DOTALL
+    ):
+        label, prop, inner = item_m.groups()
+
+        readonly = bool(re.search(r'\breadonly\b', inner))
+
+        if '<el-select' in inner:
+            options = re.findall(
+                r'<el-option[^>]+label="([^"]+)"[^>]+:value="([^"]+)"', inner
+            )
+            placeholder_m = re.search(r'placeholder="([^"]+)"', inner)
+            placeholder = placeholder_m.group(1) if placeholder_m else '请选择'
+            fields.append({
+                'label': label, 'prop': prop, 'type': 'select',
+                'readonly': False, 'placeholder': placeholder, 'options': options,
+            })
+
+        elif '<el-date-picker' in inner:
+            placeholder_m = re.search(r'placeholder="([^"]+)"', inner)
+            placeholder = placeholder_m.group(1) if placeholder_m else '选择日期时间'
+            fields.append({
+                'label': label, 'prop': prop, 'type': 'date-picker',
+                'readonly': False, 'placeholder': placeholder,
+            })
+
+        elif '<el-radio-group' in inner:
+            radios = re.findall(r'<el-radio[^>]+:label="([^"]+)"[^>]*>([^<]+)<', inner)
+            fields.append({
+                'label': label, 'prop': prop, 'type': 'radio-group',
+                'readonly': False, 'radios': radios,
+            })
+
+        elif '<el-upload' in inner:
+            fields.append({
+                'label': label, 'prop': prop, 'type': 'upload',
+                'readonly': False,
+            })
+
+        elif '<el-input' in inner:
+            placeholder_m = re.search(r'placeholder="([^"]+)"', inner)
+            placeholder = placeholder_m.group(1) if placeholder_m else ''
+            type_m = re.search(r'type="([^"]+)"', inner)
+            input_type = type_m.group(1) if type_m else 'text'
+            # 检测是否有 选择人员 按钮（picker 填充），仅对 readonly 字段有效
+            has_user_picker = readonly and bool(re.search(r'选择人员', inner))
+            fields.append({
+                'label': label, 'prop': prop, 'type': 'input',
+                'readonly': readonly, 'placeholder': placeholder,
+                'input_type': input_type, 'has_user_picker': has_user_picker,
+            })
+
+    return fields
+
+
+# ============================================================
+# 解析 G-form-add 的 formDataInfo（从 script 中的 reactive state 提取）
+# ============================================================
+def parse_g_form_add_fields(vue_path: Path) -> list:
+    """
+    解析 Vue 文件 <script setup> 中的 formDataInfo 数组，
+    提取 G-form-add 组件的字段定义（支持嵌套对象，如 dateInfo/options）。
+
+    返回: [{ label, prop, type, required, placeholder }]
+    type: 'input' | 'select' | 'date' | 'textarea' | 'number'
+    """
+    content  = vue_path.read_text(encoding='utf-8')
+    script_m = re.search(r'<script\b[^>]*>(.*?)</script>', content, re.DOTALL)
+    if not script_m:
+        return []
+    script = script_m.group(1)
+
+    # 找 formDataInfo / formInfo / formDataInfoList 数组的起始 [
+    fdi_m = re.search(
+        r'\b(?:formDataInfo|formInfo|formDataInfoList|formFields)\s*:\s*\[',
+        script
+    )
+    if not fdi_m:
+        return []
+
+    # 用括号计数找到整个数组范围
+    start = fdi_m.end()
+    depth = 1
+    pos   = start
+    while pos < len(script) and depth > 0:
+        c = script[pos]
+        if c == '[':
+            depth += 1
+        elif c == ']':
+            depth -= 1
+        pos += 1
+    arr_content = script[start: pos - 1]
+
+    # 逐个提取顶层 { ... } 对象（支持嵌套）
+    fields = []
+    i = 0
+    while i < len(arr_content):
+        if arr_content[i] == '{':
+            obj_start = i + 1
+            d = 1
+            j = obj_start
+            while j < len(arr_content) and d > 0:
+                if arr_content[j] == '{':
+                    d += 1
+                elif arr_content[j] == '}':
+                    d -= 1
+                j += 1
+            obj = arr_content[obj_start: j - 1]
+
+            label_m = re.search(r'\blabel\s*:\s*["\']([^"\']+)["\']', obj)
+            prop_m  = re.search(r'\bprop\s*:\s*["\']([^"\']+)["\']', obj)
+            # type 字段可能在嵌套 dateInfo 内，只取顶层（不含嵌套括号）
+            top_obj = re.sub(r'\{[^{}]+\}', '', obj)  # 去掉嵌套块后找 type
+            type_m  = re.search(r'\btype\s*:\s*["\']([^"\']+)["\']', top_obj)
+            req_m   = re.search(r'\brequired\s*:\s*true', obj)
+            ph_m    = re.search(r'\bplaceholder\s*:\s*["\']([^"\']+)["\']', obj)
+
+            if label_m and prop_m and type_m:
+                fields.append({
+                    'label':       label_m.group(1),
+                    'prop':        prop_m.group(1),
+                    'type':        type_m.group(1),   # input/select/date/textarea/number
+                    'required':    bool(req_m),
+                    'placeholder': ph_m.group(1) if ph_m else '',
+                })
+            i = j
+        else:
+            i += 1
+
+    return fields
+
+
+# ============================================================
+# G-form-add 表单填充代码生成（全页面，不含 el-dialog 包装）
+# ============================================================
+def gen_g_form_add_fill_lines(fields: list) -> list:
+    """
+    为 G-form-add 全页面表单生成填充代码。
+    填充所有字段（required 标记仅供参考，不做过滤）。
+    使用 .el-form-item + hasText 定位，不依赖 .el-dialog。
+    """
+    lines = [
+        "    // ---- 填充 G-form-add 表单字段（全页面）----",
+    ]
+
+    for f in fields:
+        label = f['label']
+        prop  = f['prop']
+        ftype = f['type']
+        value = TEST_FORM_VALUES.get(prop, _DEFAULT_TEXT)
+
+        if ftype == 'input':
+            lines += [
+                f"    // 【{label}】input",
+                f"    await page.locator('.el-form-item').filter({{ hasText: '{label}' }}).locator('input').first().fill('{value}');",
+            ]
+        elif ftype == 'number':
+            # input[type=number] 不接受文字，必须填数值
+            num_value = TEST_FORM_VALUES.get(prop, '1')
+            lines += [
+                f"    // 【{label}】number（整数）",
+                f"    await page.locator('.el-form-item').filter({{ hasText: '{label}' }}).locator('input').first().fill('{num_value}');",
+            ]
+        elif ftype == 'textarea':
+            lines += [
+                f"    // 【{label}】textarea（必填）",
+                f"    await page.locator('.el-form-item').filter({{ hasText: '{label}' }}).locator('textarea').first().fill('{value}');",
+            ]
+        elif ftype == 'select':
+            lines += [
+                f"    // 【{label}】select",
+                f"    await page.locator('.el-form-item').filter({{ hasText: '{label}' }}).locator('.el-select').click();",
+                f"    await page.waitForTimeout(300); // 等待 dropdown 展开",
+                f"    // dispatchEvent 绕过 EP2 Teleport dropdown 的 not-visible 问题",
+                f"    await page.locator('.el-select-dropdown__item').first().dispatchEvent('click');",
+            ]
+        elif ftype == 'date':
+            date_value = TEST_FORM_VALUES.get(prop, _DEFAULT_DATE)
+            lines += [
+                f"    // 【{label}】date-picker（必填）",
+                f"    await page.locator('.el-form-item').filter({{ hasText: '{label}' }}).locator('input').first().fill('{date_value}');",
+                f"    // Tab 触发 blur/change 更新 Vue 绑定值（Escape 仅关面板但不保存）",
+                f"    await page.keyboard.press('Tab');",
+                f"    await page.waitForTimeout(300);",
+            ]
+        lines.append("")
+
+    return lines
+
+
+# ============================================================
+# 表单填充代码生成
+# ============================================================
+def gen_form_fill_lines(form_fields: list) -> list:
+    """
+    根据表单字段列表生成 JS 填充代码行（4 空格缩进）。
+    跳过 upload 类型；readonly 字段使用 JS 注入。
+    """
+    lines = [
+        "    // ---- 填充表单字段（全量，确保验证通过 & status=200）----",
+    ]
+
+    select_index = 0  # dialog 内 el-select 的顺序下标
+
+    for f in form_fields:
+        label      = f['label']
+        prop       = f['prop']
+        ftype      = f['type']
+        readonly   = f.get('readonly', False)
+
+        if ftype == 'upload':
+            lines.append(f"    // 【{label}】文件上传字段，E2E 跳过（非必填）")
+            continue
+
+        if ftype == 'input':
+            placeholder = f.get('placeholder', '')
+            input_type  = f.get('input_type', 'text')
+            value       = TEST_FORM_VALUES.get(prop, _DEFAULT_TEXT)
+
+            if readonly:
+                has_user_picker = f.get('has_user_picker', False)
+                if has_user_picker:
+                    # readonly + 选择人员 picker → 点击 picker 按钮，选第一条记录
+                    # picker dialog 含 el-table（区别于主 dialog 的 el-form）
+                    lines += [
+                        f"    // 【{label}】readonly + 选择人员，通过 picker 填充（正确更新 Vue 响应式状态）",
+                        f"    await page.getByRole('button', {{ name: '选择人员' }}).first().click();",
+                        f"    // 等待 picker dialog 内的 el-table 出现（区分主 dialog）",
+                        f"    await page.locator('.el-dialog .el-table').first().waitFor({{ state: 'visible', timeout: 10000 }});",
+                        f"    await page.waitForLoadState('networkidle', {{ timeout: 8000 }});",
+                        f"    // 点击 picker 表格第一行的「选择」按钮（exact 精确匹配 + dispatchEvent 绕过 td 遮挡）",
+                        f"    await page.getByRole('button', {{ name: '选择', exact: true }}).first().dispatchEvent('click');",
+                        f"    await page.waitForTimeout(500); // 等待 picker 关闭并字段更新",
+                    ]
+                else:
+                    # readonly 且无 picker 按钮 → 由 picker 联动自动填充，无需手动操作
+                    lines += [
+                        f"    // 【{label}】readonly，由选择人员 picker 自动联动填充，跳过",
+                    ]
+            elif input_type == 'textarea':
+                lines += [
+                    f"    // 【{label}】textarea",
+                    f"    await page.locator('.el-dialog textarea').first().fill('{value}');",
+                ]
+            else:
+                lines += [
+                    f"    // 【{label}】",
+                    f"    await page.locator('.el-dialog').getByPlaceholder('{placeholder}').fill('{value}');",
+                ]
+
+        elif ftype == 'select':
+            # EP2 el-select 不暴露 placeholder 属性，改用 .el-select 按顺序下标定位
+            # dropdown 经 Teleport 渲染到 body 层，click({force}) 仍报 not-visible；改用 dispatchEvent
+            lines += [
+                f"    // 【{label}】el-select（dialog 内第 {select_index} 个 el-select）",
+                f"    await page.locator('.el-dialog .el-select').nth({select_index}).click();",
+                f"    await page.waitForTimeout(300); // 等待 dropdown 动画展开",
+                f"    await page.locator('.el-select-dropdown__item').first().dispatchEvent('click');",
+            ]
+            select_index += 1
+
+        elif ftype == 'date-picker':
+            placeholder = f.get('placeholder', '选择日期时间')
+            value       = TEST_FORM_VALUES.get(prop, _DEFAULT_DATE)
+            lines += [
+                f"    // 【{label}】el-date-picker",
+                f"    await page.locator('.el-dialog input[placeholder=\"{placeholder}\"]').fill('{value}');",
+                f"    // Tab 触发 blur/change，更新 Vue 绑定值；避免 Enter 误触 dialog 确定按钮",
+                f"    await page.keyboard.press('Tab');",
+                f"    await page.waitForTimeout(300);",
+            ]
+
+        elif ftype == 'radio-group':
+            lines += [
+                f"    // 【{label}】el-radio-group",
+                f"    await page.locator('.el-dialog .el-radio').first().click();",
+            ]
+
+        lines.append("")
+
+    return lines
+
+
+# ============================================================
+# API URL 辅助函数
+# ============================================================
+def find_remove_url(pf: dict, api_map: dict) -> str:
+    """从文件的所有 API 调用中找 remove* 方法，返回其 URL（不含协议/host）。"""
+    for fn_api_list in pf['api_calls'].values():
+        for api_name in fn_api_list:
+            if 'remove' in api_name.lower():
+                info = api_map.get(api_name, {})
+                if info:
+                    return info['url']
+    return ''
+
+
+def find_add_url(api_list: list, api_map: dict) -> str:
+    """从 api_list 中选 add* 方法的 URL；回退到第一个 POST 方法。"""
+    for api_name in api_list:
+        if 'add' in api_name.lower():
+            info = api_map.get(api_name, {})
+            if info:
+                return info['url']
+    for api_name in api_list:
+        info = api_map.get(api_name, {})
+        if info and info.get('method') == 'POST':
+            return info['url']
+    return ''
+
+
+def find_export_url(api_list: list, api_map: dict) -> str:
+    """从 api_list 中选 export* 方法的 URL。"""
+    for api_name in api_list:
+        if 'export' in api_name.lower():
+            info = api_map.get(api_name, {})
+            if info:
+                return info['url']
+    return ''
+
+
+def categorize_button(label: str, api_list: list, api_map: dict) -> str:
+    """
+    按钮分类:
+      'ui'          - 纯 UI，无 API
+      'get_read'    - GET 读操作（如导出）
+      'post_write'  - POST 写操作（如确定/提交）
+      'post_delete' - POST 删除，带 ElMessageBox 确认
+    """
+    if label == '删除':
+        return 'post_delete'
+
+    if not api_list:
+        return 'ui'
+
+    # 检查是否包含 GET API
+    has_get  = any(api_map.get(a, {}).get('method') == 'GET'  for a in api_list)
+    has_post = any(api_map.get(a, {}).get('method') == 'POST' for a in api_list)
+
+    if has_get and not has_post:
+        return 'get_read'
+    if has_post:
+        return 'post_write'
+
+    return 'ui'
+
+
+# ============================================================
+# Vue 文件解析
+# ============================================================
+def parse_vue_file(vue_path: Path) -> dict:
+    """
+    解析单个 .vue 文件，提取按钮事件、API 调用链、dialog 内按钮。
+
+    返回结构:
+    {
+      'file': str,
+      'buttons': [{'label': str, 'handler': str, 'btn_type': str}],
+      'api_calls': {handler_name: [api_method, ...]},  # 所有函数（含非按钮处理器）
+      'state_transitions': {handler_name: [isType_value, ...]},
+      'dialog_button_handlers': set(),
+    }
+    """
+    content = vue_path.read_text(encoding='utf-8')
+    result = {
+        'file':                   vue_path.name,
+        'buttons':                [],
+        'api_calls':              {},
+        'state_transitions':      {},
+        'dialog_button_handlers': set(),
+    }
+
+    template_m = re.search(r'<template>(.*)</template>', content, re.DOTALL)
+    if template_m:
+        tpl = template_m.group(1)
+
+        # ---- 收集 el-dialog 内的按钮 handler（判断是否需要先开 dialog） ----
+        for dialog_m in re.finditer(r'<el-dialog\b[^>]*>(.*?)</el-dialog>', tpl, re.DOTALL):
+            dialog_content = dialog_m.group(1)
+            for btn_m in re.finditer(
+                r'<el-button\b[^>]*@click=["\']([^"\']+)["\'][^>]*>',
+                dialog_content
+            ):
+                handler_expr = btn_m.group(1)
+                h = re.match(r'(\w+)', handler_expr.strip())
+                if h:
+                    result['dialog_button_handlers'].add(h.group(1))
+
+        # ---- 检测 G-form-add 组件（确定/取消由组件内部渲染，生成合成按钮）----
+        # 匹配: <G-form-add ... @call-back-data="handlerFn" ... :show-footer="true" ...>
+        for gfa_m in re.finditer(
+            r'<G-form-add\b[^>]*@call-back-data=["\'](\w+)["\']',
+            tpl
+        ):
+            gfa_handler = gfa_m.group(1)
+            synthetic_btn = {
+                'label': '确定', 'handler': gfa_handler,
+                'btn_type': 'normal', 'g_form_add': True,
+                'detail_mode_only': False,
+            }
+            if synthetic_btn not in result['buttons']:
+                result['buttons'].append(synthetic_btn)
+
+        # ---- 普通按钮: <el-button @click="handler">文字</el-button> ----
+        for m in re.finditer(
+            r'<el-button\b([^>]*)@click=["\']([^"\']+)["\']([^>]*)>\s*([^<]+?)\s*<',
+            tpl, re.DOTALL
+        ):
+            attrs_pre, click_expr, attrs_post, label = m.groups()
+            attrs_all = attrs_pre + attrs_post
+            label = label.strip()
+
+            # 处理 Vue 模板三元表达式，取 false 分支（默认渲染值）
+            if '{{' in label:
+                ternary = re.match(
+                    r'^\s*\{\{\s*[\w.]+\s*\?\s*[\'"](.+?)[\'"]\s*:\s*[\'"](.+?)[\'"]\s*\}\}\s*$',
+                    label
+                )
+                if ternary:
+                    label = ternary.group(2)  # false 分支（默认状态）
+                else:
+                    continue
+
+            handler = re.match(r'(\w+)', click_expr.strip())
+            handler = handler.group(1) if handler else click_expr.strip()
+            btn_type = 'link' if 'link' in attrs_all else 'normal'
+            detail_mode_only = bool(re.search(r'v-if=["\']isDetailMode["\']', attrs_all))
+            if label and handler:
+                entry = {'label': label, 'handler': handler, 'btn_type': btn_type,
+                         'detail_mode_only': detail_mode_only}
+                if entry not in result['buttons']:
+                    result['buttons'].append(entry)
+
+    # ---- 解析 <script setup> 中所有函数及 API 调用（使用括号计数器处理深层嵌套）----
+    script_m = re.search(r'<script\b[^>]*>(.*?)</script>', content, re.DOTALL)
+    if script_m:
+        script = script_m.group(1)
+
+        # 函数签名正则（匹配箭头函数 & 普通函数）
+        sig_pattern = re.compile(
+            r'(?:const\s+(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>'
+            r'|function\s+(\w+)\s*\([^)]*\))'
+            r'\s*\{',
+            re.DOTALL
+        )
+
+        for m in sig_pattern.finditer(script):
+            func_name = m.group(1) or m.group(2)
+            # 从函数体开头的 { 开始，用括号计数器找到配对的 }
+            body_start = m.end()  # 紧跟 { 后的位置
+            depth = 1
+            pos   = body_start
+            while pos < len(script) and depth > 0:
+                ch = script[pos]
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                pos += 1
+            body = script[body_start: pos - 1]  # 去掉最外层的 }
+
+            # 收集所有 api.xxx 引用（包括 api.fn 赋值给变量再调用的模式）
+            api_refs = re.findall(r'\bapi\.(\w+)\b', body)
+            if api_refs:
+                result['api_calls'][func_name] = list(dict.fromkeys(api_refs))  # 去重保序
+
+            type_vals = re.findall(r'(?:state\.)?isType\s*=\s*(\d+)', body)
+            if type_vals:
+                result['state_transitions'][func_name] = [int(v) for v in type_vals]
+
+    return result
+
+
+# ============================================================
+# 测试脚本生成
+# ============================================================
+def gen_test_js(parsed_files: list, route_path: str, mod_name: str,
+                subcomp_istype: dict, api_map: dict, form_fields_map: dict,
+                g_form_fields_map: dict = None) -> str:
+    """
+    根据解析结果生成 Playwright 集成测试脚本内容。
+
+    subcomp_istype:  {'sample-signup.vue': 4, 'sample-work.vue': 5}
+    api_map:         {'exportSample': {'url': '/demo/sample/export', 'method': 'GET'}, ...}
+    form_fields_map: {'sample-signup.vue': [...fields...], 'sample-work.vue': [...fields...]}
+
+    按钮分类:
+      - 'ui'          → 点击 + 截图 + 不崩溃
+      - 'get_read'    → Promise.all([waitForResponse(GET url), click()]) + status=200
+      - 'post_write'  → 填充全量表单 + Promise.all([waitForResponse(POST url), click()]) + status=200
+      - 'post_delete' → click(删除) → click(ElMessageBox 确定) → waitForResponse + status=200
+    """
+    ts        = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    mod_upper = mod_name.upper()
+
+    lines = [
+        '// ============================================================',
+        f'// 脚本名称: index.test.js',
+        f'// 生成时间: {ts}',
+        f'// 模    块: {mod_name}',
+        '// 作    用: 集成测试 - 模拟用户点击所有按钮，断言 API status=200，截图存档',
+        '//',
+        '// 【运行方式】',
+        '//   通过 run_page_test.sh（或 .ps1）启动，脚本自动生成本文件再运行',
+        '//',
+        '// 【测试策略】',
+        '//   ui          → 点击 + 截图 + 不崩溃',
+        '//   get_read    → waitForResponse(GET) + status=200',
+        '//   post_write  → DB重置 + 全量表单填充 + waitForResponse(POST) + status=200',
+        '//   post_delete → 点删除 + 确认弹窗 + waitForResponse(POST remove) + status=200',
+        '//',
+        '// 【输出目录】',
+        '//   ../05-out/{TEST_RUN_ID}/           - 截图存档',
+        '//   ../05-out/{TEST_RUN_ID}/api-log.json  - API 日志（与截图同目录，不受 html-report 清空影响）',
+        '//   ../05-out/{TEST_RUN_ID}/api.har       - HAR 录制',
+        '// ============================================================',
+        '',
+        "const { test, expect } = require('@playwright/test');",
+        "const fs   = require('fs');",
+        "const path = require('path');",
+        '',
+        f"const PAGE_URL       = '{route_path}';",
+        "const RUN_ID         = process.env.TEST_RUN_ID || `run_${Date.now()}`;",
+        "const PRINT_DIR      = path.resolve(__dirname, '../05-out', RUN_ID);",
+        "// API_LOG_PATH 与截图同目录（不放 html-report/ 内，避免 Playwright HTML Reporter 清空时被删除）",
+        "const API_LOG_PATH   = path.join(PRINT_DIR, 'api-log.json');",
+        "const MOCK_SCRIPT    = path.resolve(__dirname, '../02-sql-scripts/run_mock.sh');",
+        '',
+        '// ============================================================',
+        '// 工具函数',
+        '// ============================================================',
+        '',
+        '/** 确保目录存在 */',
+        'function ensureDir(dir) {',
+        '  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });',
+        '}',
+        '',
+        '/** 追加一条记录到 api-log.json */',
+        'function appendApiLog(entry) {',
+        '  try {',
+        '    ensureDir(PRINT_DIR);',
+        '    let log = [];',
+        '    try { log = JSON.parse(fs.readFileSync(API_LOG_PATH, "utf-8")); } catch {}',
+        '    log.push(entry);',
+        '    fs.writeFileSync(API_LOG_PATH, JSON.stringify(log, null, 2));',
+        '  } catch {}',
+        '}',
+        '',
+        '/** 执行 DB 重置脚本 */',
+        'function resetDb() {',
+        '  try {',
+        "    require('child_process').execSync(`bash \"${MOCK_SCRIPT}\" 0 --yes`, {",
+        "      stdio: 'pipe',",
+        '      timeout: 60000,',
+        '    });',
+        "    console.log('[beforeAll] ✅ 数据库已重置 (run_mock.sh 0 --yes)');",
+        '  } catch (e) {',
+        "    console.warn('[beforeAll] ⚠️  DB 重置失败，继续测试:', String(e.message).slice(0, 200));",
+        '  }',
+        '}',
+        '',
+        '/** 通用 beforeEach 配置: 打开页面、关闭引导遮罩、启动 API 日志监听 */',
+        'async function commonBeforeEach(page) {',
+        '  // ⚠️  监听器必须在 goto() 之前注册，否则页面加载阶段的 /list 等接口会漏采',
+        "  page.on('response', async (response) => {",
+        "    if (!response.url().includes('/layer/')) return;",
+        '    try {',
+        "      const body = await response.text().catch(() => '');",
+        '      appendApiLog({',
+        '        ts:     new Date().toISOString(),',
+        '        status: response.status(),',
+        '        method: response.request().method(),',
+        '        url:    response.url(),',
+        '        body:   body.slice(0, 1000),',
+        '      });',
+        '    } catch {}',
+        '  });',
+        '',
+        '  await page.goto(PAGE_URL);',
+        "  await page.waitForLoadState('networkidle', { timeout: 15000 });",
+        '  await page.evaluate(() => {',
+        "    document.querySelectorAll('.driver-overlay, .driver-popover, .driver-popover-next-btn').forEach(el => el.remove());",
+        "    document.body.classList.remove('driver-active', 'driver-fade');",
+        '  }).catch(() => {});',
+        '}',
+        '',
+    ]
+
+    for pf in parsed_files:
+        fname   = pf['file'].replace('.vue', '')
+        buttons = pf['buttons']
+        if not buttons:
+            continue
+
+        is_subcomponent = (pf['file'] != 'index.vue')
+        has_subview_nav = pf['file'] in subcomp_istype
+        istype_val      = subcomp_istype.get(pf['file'])
+        dialog_handlers = pf['dialog_button_handlers']
+        form_fields     = form_fields_map.get(pf['file'], [])
+
+        lines += [
+            f"// ================================================================",
+            f"// 来源文件: {pf['file']}",
+            f"// 按钮数量: {len(buttons)}",
+            f"// ================================================================",
+            f"test.describe('{mod_upper} | {fname}', () => {{",
+            '',
+            '  // beforeAll: 重置数据库，确保测试数据干净',
+            '  test.beforeAll(() => { resetDb(); });',
+            '',
+            '  // beforeEach: 打开页面、关闭遮罩、API 日志监听',
+            '  test.beforeEach(async ({ page }) => {',
+            '    await commonBeforeEach(page);',
+            '  });',
+            '',
+        ]
+
+        for btn in buttons:
+            handler  = btn['handler']
+            label    = btn['label']
+            # 优先从直接 handler 查，其次搜全文 api_calls（用于 submitForm 等）
+            api_list = pf['api_calls'].get(handler, [])
+
+            # 按钮分类
+            category = categorize_button(label, api_list, api_map)
+
+            # 决定注释
+            if category == 'post_delete':
+                api_comment = f"POST 写操作（删除）→ waitForResponse(remove)"
+            elif category == 'get_read':
+                url_hint = find_export_url(api_list, api_map) or ', '.join(api_list)
+                api_comment = f"GET 读操作: {url_hint}"
+            elif category == 'post_write':
+                url_hint = find_add_url(api_list, api_map) or ', '.join(api_list)
+                api_comment = f"POST 写操作: {url_hint}"
+            else:
+                api_comment = '无直接 API 调用'
+
+            label_safe  = label.replace("'", "\\'")
+            screenshot  = f'{mod_upper}-{fname}-{label}.png'
+
+            # 前置操作判断
+            detail_only   = btn.get('detail_mode_only', False)
+            needs_subview = has_subview_nav
+            needs_dialog  = (is_subcomponent and handler in dialog_handlers)
+            nav_testid    = f'nav-{fname}-detail' if (needs_subview and detail_only) else f'nav-{fname}'
+
+            lines += [
+                f"  // {api_comment}",
+                f"  test('点击「{label_safe}」按钮', async ({{ page }}) => {{",
+                '',
+            ]
+
+            # ---- 前置: 子视图导航 ----
+            if needs_subview:
+                mode_note = '（详情模式）' if detail_only else ''
+                lines += [
+                    f"    // 此按钮在子视图{mode_note}（isType={istype_val}）内，先通过隐藏导航按钮切换视图",
+                    f"    // dispatchEvent 绕过 display:none 可见性限制",
+                    f"    await page.locator('[data-testid=\"{nav_testid}\"]').dispatchEvent('click');",
+                    f"    await page.waitForLoadState('networkidle', {{ timeout: 10000 }});",
+                    f"    // 等待 loading 遮罩消失，防止遮挡按钮点击",
+                    f"    await page.locator('.el-loading-mask').waitFor({{ state: 'hidden', timeout: 10000 }}).catch(() => {{}});",
+                    '',
+                ]
+
+            # ---- 前置: 打开 dialog ----
+            if needs_dialog:
+                lines += [
+                    f"    // 此按钮在 dialog 内，先点「新增」打开 dialog",
+                    f"    await page.getByRole('button', {{ name: '新增' }}).first().click();",
+                    f"    await page.locator('.el-dialog').first().waitFor({{ state: 'visible', timeout: 10000 }});",
+                    '',
+                ]
+
+            # ---- 核心点击逻辑（按分类） ----
+            if category == 'get_read':
+                api_url = find_export_url(api_list, api_map)
+                url_filter = api_url or f'/demo/{mod_name}/export'
+                lines += [
+                    f"    // GET 读操作：同步等待 API 响应，断言 status=200",
+                    f"    const [apiRes] = await Promise.all([",
+                    f"      page.waitForResponse(response => response.url().includes('{url_filter}'), {{ timeout: 15000 }}),",
+                    f"      page.getByRole('button', {{ name: '{label_safe}' }}).first().click(),",
+                    f"    ]);",
+                    '',
+                    f"    // 截图存档到本次运行目录",
+                    f"    ensureDir(PRINT_DIR);",
+                    f"    await page.screenshot({{",
+                    f"      path: path.join(PRINT_DIR, '{screenshot}'),",
+                    f"      fullPage: false,",
+                    f"    }});",
+                    '',
+                    f"    // 断言 API 返回 200",
+                    f"    expect(apiRes.status()).toBe(200);",
+                    f"    await expect(page).not.toHaveTitle(/404|500/);",
+                    f"  }});",
+                    '',
+                ]
+
+            elif category == 'post_write':
+                api_url    = find_add_url(api_list, api_map)
+                url_filter = api_url or f'/demo/{mod_name}/add'
+                # G-form-add 按钮：使用 g_form_fields_map 里的字段定义
+                is_g_form_add = btn.get('g_form_add', False)
+                if is_g_form_add and g_form_fields_map:
+                    gff = (g_form_fields_map or {}).get(pf['file'], [])
+                    fill_lines = gen_g_form_add_fill_lines(gff) if gff else [
+                        f"    // ⚠️  未找到 G-form-add 字段信息，跳过填充",
+                    ]
+                else:
+                    fill_lines = gen_form_fill_lines(form_fields) if form_fields else [
+                        f"    // ⚠️  未找到表单字段信息，跳过填充",
+                    ]
+                lines += fill_lines
+                lines += [
+                    f"    // POST 写操作：同步等待 API 响应，断言 status=200",
+                    f"    const [apiRes] = await Promise.all([",
+                    f"      page.waitForResponse(response => response.url().includes('{url_filter}'), {{ timeout: 15000 }}),",
+                    f"      page.getByRole('button', {{ name: '{label_safe}' }}).first().click(),",
+                    f"    ]);",
+                    '',
+                    f"    // 截图存档到本次运行目录",
+                    f"    ensureDir(PRINT_DIR);",
+                    f"    await page.screenshot({{",
+                    f"      path: path.join(PRINT_DIR, '{screenshot}'),",
+                    f"      fullPage: false,",
+                    f"    }});",
+                    '',
+                    f"    // 断言 API 返回 200",
+                    f"    expect(apiRes.status()).toBe(200);",
+                    f"    await expect(page).not.toHaveTitle(/404|500/);",
+                    f"  }});",
+                    '',
+                ]
+
+            elif category == 'post_delete':
+                remove_url = find_remove_url(pf, api_map)
+                url_filter = remove_url or f'/demo/{mod_name}/remove'
+                lines += [
+                    f"    // POST 删除：先注册监听，再依次 click 删除按钮 → ElMessageBox 确定",
+                    f"    const apiResPromise = page.waitForResponse(",
+                    f"      response => response.url().includes('{url_filter}'),",
+                    f"      {{ timeout: 15000 }}",
+                    f"    );",
+                    f"    await page.getByRole('button', {{ name: '{label_safe}' }}).first().click();",
+                    f"    // 等待 ElMessageBox 确认对话框出现并点确定",
+                    f"    await page.locator('.el-message-box__btns .el-button--primary').first().click();",
+                    f"    const apiRes = await apiResPromise;",
+                    '',
+                    f"    // 截图存档到本次运行目录",
+                    f"    ensureDir(PRINT_DIR);",
+                    f"    await page.screenshot({{",
+                    f"      path: path.join(PRINT_DIR, '{screenshot}'),",
+                    f"      fullPage: false,",
+                    f"    }});",
+                    '',
+                    f"    // 断言 API 返回 200",
+                    f"    expect(apiRes.status()).toBe(200);",
+                    f"    await expect(page).not.toHaveTitle(/404|500/);",
+                    f"  }});",
+                    '',
+                ]
+
+            else:  # category == 'ui'
+                lines += [
+                    f"    await page.getByRole('button', {{ name: '{label_safe}' }}).first().click();",
+                    '',
+                    f"    // 截图存档到本次运行目录",
+                    f"    ensureDir(PRINT_DIR);",
+                    f"    await page.screenshot({{",
+                    f"      path: path.join(PRINT_DIR, '{screenshot}'),",
+                    f"      fullPage: false,",
+                    f"    }});",
+                    '',
+                    f"    // 基本断言：页面未崩溃",
+                    f"    await expect(page).not.toHaveTitle(/404|500/);",
+                    f"  }});",
+                    '',
+                ]
+
+        lines += ['});', '']
+
+    return '\n'.join(lines)
+
+
+# ============================================================
+# HTML 报告主题修复
+# ============================================================
+def patch_html_theme(html_path: Path, theme: str = 'light') -> bool:
+    """
+    将 Playwright HTML 报告的 color-scheme 改为指定主题。
+    """
+    target_map = {
+        'light':  "content='light'",
+        'dark':   "content='dark'",
+        'system': "content='dark light'",
+    }
+    target = target_map.get(theme, "content='light'")
+
+    if not html_path.exists():
+        print(f"[patch-html] ⚠️  文件不存在: {html_path}")
+        return False
+
+    text = html_path.read_text(encoding='utf-8')
+    for src in ("content='dark light'", "content='light'", "content='dark'"):
+        if src in text:
+            if src == target:
+                print(f"[patch-html] ℹ️  已是 {theme} 主题，无需修改: {html_path.name}")
+            else:
+                html_path.write_text(text.replace(src, target), encoding='utf-8')
+                print(f"[patch-html] ✅ 主题已设为 {theme}: {html_path}")
+            return True
+
+    print(f"[patch-html] ⚠️  未找到 color-scheme 标记: {html_path.name}")
+    return True
+
+
+# ============================================================
+# 主入口
+# ============================================================
+def main():
+    parser = argparse.ArgumentParser(
+        description='run_page_test.py - 解析 Vue 文件生成 Playwright 集成测试脚本'
+    )
+    parser.add_argument('--force', action='store_true', help='强制覆盖已存在的测试文件')
+    parser.add_argument('--patch-html', metavar='HTML_PATH',
+                        help='修复 Playwright HTML 报告主题（配合 --theme 使用）')
+    parser.add_argument('--theme', choices=['light', 'dark', 'system'], default='light',
+                        help='HTML 报告主题: light（默认）/ dark / system（跟随系统）')
+    args = parser.parse_args()
+
+    # ---- patch-html 模式：仅修复 HTML，不做其他操作 ----
+    if args.patch_html:
+        ok = patch_html_theme(Path(args.patch_html), theme=args.theme)
+        return 0 if ok else 1
+
+    script_dir = Path(__file__).parent.resolve()
+    paths      = detect_paths(script_dir)
+
+    print('=' * 55)
+    print(f"模块路径: {paths['module_path']}")
+    print(f"Vue 目录: {paths['vue_dir']}")
+    print(f"服务文件: {paths['service_path']}")
+    print(f"输出目录: {paths['out_dir']}")
+    print('=' * 55)
+
+    if not paths['vue_dir'].exists():
+        print(f"❌ Vue 目录不存在: {paths['vue_dir']}")
+        print("   请检查 app-web 项目路径是否正确")
+        return 1
+
+    # 解析服务文件 → API map
+    api_map = parse_service_file(paths['service_path'])
+    if api_map:
+        print(f"解析服务文件: {len(api_map)} 个 API 方法")
+        for fn, info in api_map.items():
+            print(f"  {fn}: [{info['method']}] {info['url']}")
+    else:
+        print("⚠️  未能解析服务文件，API 断言将使用降级模式")
+
+    # 扫描 Vue 文件
+    vue_files = sorted(paths['vue_dir'].glob('*.vue'))
+    if not vue_files:
+        print(f"⚠️  未找到 .vue 文件: {paths['vue_dir']}")
+        return 1
+
+    # 解析 index.vue 子组件 isType 映射
+    index_vue = paths['vue_dir'] / 'index.vue'
+    subcomp_istype = {}
+    if index_vue.exists():
+        subcomp_istype = parse_index_subcomponents(index_vue)
+        if subcomp_istype:
+            print(f"子组件 isType 映射:")
+            for fname, istype in subcomp_istype.items():
+                print(f"  {fname} → isType={istype}  (data-testid=\"nav-{fname.replace('.vue','')}\") ")
+
+    # 解析 Vue 文件 + 表单字段
+    print(f"\n发现 {len(vue_files)} 个 Vue 文件:")
+    parsed_list       = []
+    form_fields_map   = {}
+    g_form_fields_map = {}
+    for vf in vue_files:
+        pf = parse_vue_file(vf)
+        parsed_list.append(pf)
+        dialog_count = len(pf['dialog_button_handlers'])
+        g_btn_count  = sum(1 for b in pf['buttons'] if b.get('g_form_add'))
+        print(f"  ✓ {pf['file']}: {len(pf['buttons'])} 按钮"
+              f"{f' | {dialog_count} dialog按钮' if dialog_count else ''}"
+              f"{f' | {g_btn_count} G-form-add按钮' if g_btn_count else ''}")
+
+        # 解析表单字段（仅子组件有意义）
+        if vf.name != 'index.vue':
+            fields = parse_form_fields(vf)
+            if fields:
+                form_fields_map[vf.name] = fields
+                types = [f"{f['label']}({f['type']}{'*' if f.get('readonly') else ''})" for f in fields]
+                print(f"     dialog表单字段: {', '.join(types)}")
+
+            # 解析 G-form-add 字段（formDataInfo / formInfo）
+            gff = parse_g_form_add_fields(vf)
+            if gff:
+                g_form_fields_map[vf.name] = gff
+                all_labels = [f['label'] for f in gff]
+                print(f"     G-form-add字段: {', '.join(all_labels)}")
+
+    print()
+
+    # 生成测试文件
+    out_file = paths['out_dir'] / 'index.test.js'
+    if out_file.exists() and not args.force:
+        print(f"⚠️  已存在: {out_file}")
+        print("   使用 --force 参数强制覆盖")
+    else:
+        content = gen_test_js(
+            parsed_list, paths['route_path'], paths['mod_name'],
+            subcomp_istype, api_map, form_fields_map,
+            g_form_fields_map=g_form_fields_map,
+        )
+        out_file.write_text(content, encoding='utf-8')
+        print(f"✅ 已生成: {out_file}")
+
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())
+
+{% endraw %}

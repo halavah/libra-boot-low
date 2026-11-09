@@ -1,0 +1,109 @@
+---
+name: {{ module.code_pascal | upper }} API Design Standards (Cognitive Optimized)
+description: {{ module.name }} API 设计（主表 + {{ detail_modules | length }} 个明细表）。
+---
+
+# {{ module.name }} API 设计
+
+## 1. 基础路径 (Base Path)
+
+### 1.1 主表接口
+*   **Controller**: `{{ module.domain_pascal }}{{ master_module.code_pascal }}Controller`
+*   **Path**: `/{{ module.domain }}/{{ module.code }}/{{ master_module.code }}`
+
+{% for dm in detail_modules %}
+### 1.{{ loop.index + 1 }} 明细表{{ loop.index }}接口（{{ dm.name }}）
+*   **Controller**: `{{ module.domain_pascal }}{{ dm.code_pascal }}Controller`
+*   **Path**: `/{{ module.domain }}/{{ module.code }}/{{ dm.code }}`
+
+{% endfor %}
+
+## 2. 接口列表
+
+### 2.1 主表接口（{{ master_module.name }}）
+
+| 接口描述 | 方法 | URL | 参数 | 返回 | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 分页查询 | GET | `/list` | `{{ master_module.code_pascal }}Param` | `IPage<{{ master_module.code_pascal }}VO>` | |
+| 详情查询 | GET | `/detail` | `id` | `{{ master_module.code_pascal }}VO` | |
+| 新增 | POST | `/add` | `{{ master_module.code_pascal }}Param` | `Boolean` | |
+| 修改 | POST | `/update` | `{{ master_module.code_pascal }}Param` | `Boolean` | |
+| 删除 | POST | `/remove` | `ids` (List) | `Boolean` | 逻辑删除（级联子表） |
+| 导出 | GET | `/export` | `{{ master_module.code_pascal }}Param` | `Blob` | Excel导出 |
+| 彻底删除 | POST | `/physical-remove` | `ids` (List) | `Boolean` | 物理删除（级联子表） |
+{% if module.has_batch_operations %}
+| 批量删除 | POST | `/batch-delete` | `ids` (List) | `Boolean` | 批量逻辑删除 |
+| 批量彻底删除 | POST | `/batch-physical-delete` | `ids` (List) | `Boolean` | 批量物理删除 |
+| 批量更新 | POST | `/batch-update` | `BatchUpdateParam` | `Boolean` | 批量修改指定字段 |
+{% endif %}
+
+{% for dm in detail_modules %}
+### 2.{{ loop.index + 1 }} 明细表{{ loop.index }}接口（{{ dm.name }}）
+
+| 接口描述 | 方法 | URL | 参数 | 返回 | 备注 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 分页查询 | GET | `/list` | `{{ dm.code_pascal }}Param` | `IPage<{{ dm.code_pascal }}VO>` | 按主表ID过滤 |
+| 详情查询 | GET | `/detail` | `id` | `{{ dm.code_pascal }}VO` | |
+| 新增 | POST | `/add` | `{{ dm.code_pascal }}Param` | `Boolean` | |
+| 修改 | POST | `/update` | `{{ dm.code_pascal }}Param` | `Boolean` | |
+| 删除 | POST | `/remove` | `ids` (List) | `Boolean` | 逻辑删除 |
+| 导出 | GET | `/export` | `{{ dm.code_pascal }}Param` | `Blob` | Excel导出 |
+| 彻底删除 | POST | `/physical-remove` | `ids` (List) | `Boolean` | 物理删除（不可恢复） |
+{% if module.has_batch_operations %}
+| 批量删除 | POST | `/batch-delete` | `ids` (List) | `Boolean` | 批量逻辑删除 |
+| 批量彻底删除 | POST | `/batch-physical-delete` | `ids` (List) | `Boolean` | 批量物理删除 |
+| 批量更新 | POST | `/batch-update` | `BatchUpdateParam` | `Boolean` | 批量修改指定字段 |
+{% endif %}
+
+{% endfor %}
+
+## 3. 参数定义
+
+### 3.1 主表查询参数 (`{{ master_module.code_pascal }}Param`)
+{% for field in master_fields if field.filterable %}
+*   `{{ field.name }}`: {{ field.java_type }} ({{ field.label }})
+{% endfor %}
+
+### 3.2 主表提交参数
+```java
+@Data
+@ApiModel("{{ master_module.name }}参数")
+public class {{ master_module.code_pascal }}Param {
+    private Long id;
+{% for field in master_fields if not field.generated %}
+{% if field.required %}
+    @NotNull(message = "{{ field.label }}不能为空")
+{% endif %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+}
+```
+
+{% for dm in detail_modules %}
+### 3.{{ loop.index + 2 }} 明细{{ loop.index }}提交参数（{{ dm.name }}）
+```java
+@Data
+@ApiModel("{{ dm.name }}参数")
+public class {{ dm.code_pascal }}Param {
+    private Long id;
+    @NotNull(message = "关联ID不能为空")
+    private Long {{ dm.master_fk }};
+{% for field in dm.fields if not field.generated %}
+{% if field.required %}
+    @NotNull(message = "{{ field.label }}不能为空")
+{% endif %}
+    private {{ field.java_type }} {{ field.name }};
+{% endfor %}
+}
+```
+
+{% endfor %}
+
+## 4. 表关系图
+
+```
+{{ master_module.table_name }}（主表）
+{% for dm in detail_modules %}  └─── 1:N ──→ {{ dm.table_name }}（{{ dm.name }}明细表）
+              外键: {{ dm.master_fk_column }} | 索引: idx_{{ dm.master_fk_column }}
+{% endfor %}
+```

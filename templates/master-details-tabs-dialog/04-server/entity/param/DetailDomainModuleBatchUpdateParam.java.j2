@@ -1,0 +1,31 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * {{ module.name }} 批量更新入参
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@Schema(description = "{{ module.name }}批量更新入参")
+public class {{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam {
+
+    @Schema(description = "记录ID列表", required = true)
+    private List<Long> ids;
+
+    @Schema(description = "更新字段名", required = true)
+    private String field;
+
+    @Schema(description = "更新值", required = true)
+    private Object value;
+
+    @Schema(description = "批量更新数据（多字段同时更新）")
+    private Map<String, Object> data;
+}

@@ -1,0 +1,91 @@
+# {{ group_name }} 枚举定义
+
+> **模块组**: {{ group_name }}（{{ master_module.domain_chinese }}）
+> **主表**: {{ master_module.name }}（{{ master_module.code }}）
+{% for dm in detail_modules %}> **明细表{{ loop.index }}**: {{ dm.name }}（{{ dm.code }}）
+{% endfor %}
+
+---
+
+## 主表枚举 — {{ master_module.name }}
+
+{% set ns = namespace(count=0) %}
+{% for field in master_fields %}
+{% if field.type == 'select' and field.options %}
+{% set ns.count = ns.count + 1 %}
+### {{ ns.count }}. {{ field.label }}
+
+**字段**: `{{ master_module.table_name }}.{{ field.column_name }}`
+**字典Key**: `{{ master_module.domain }}_{{ master_module.code }}_{{ field.name }}`
+
+| 值 | 描述 | 说明 |
+|:---|:---|:---|
+{% for option in field.options %}
+| {{ option.value }} | {{ option.label }} |  |
+{% endfor %}
+
+---
+
+{% endif %}
+{% endfor %}
+
+{% for dm in detail_modules %}
+## 明细表{{ loop.index }}枚举 — {{ dm.name }}
+
+{% set ns_dm = namespace(count=0) %}
+{% for field in dm.fields %}
+{% if field.type == 'select' and field.options %}
+{% set ns_dm.count = ns_dm.count + 1 %}
+### {{ ns_dm.count }}. {{ field.label }}
+
+**字段**: `{{ dm.table_name }}.{{ field.column_name }}`
+**字典Key**: `{{ dm.domain }}_{{ dm.code }}_{{ field.name }}`
+
+| 值 | 描述 | 说明 |
+|:---|:---|:---|
+{% for option in field.options %}
+| {{ option.value }} | {{ option.label }} |  |
+{% endfor %}
+
+---
+
+{% endif %}
+{% endfor %}
+
+{% endfor %}
+## 使用说明
+
+### 前端（主表）
+
+```javascript
+{% for field in master_fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}
+const {{ field.name }}Options = [
+{% for option in field.options %}
+  { label: "{{ option.label }}", value: {{ option.value }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+];
+{% endif %}
+{% endfor %}
+```
+
+{% for dm in detail_modules %}
+### 前端（明细表{{ loop.index }}：{{ dm.name }}）
+
+```javascript
+{% for field in dm.fields %}
+{% if field.type == 'select' and field.options %}
+// {{ field.label }}
+const {{ field.name }}Options = [
+{% for option in field.options %}
+  { label: "{{ option.label }}", value: {{ option.value }} }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+];
+{% endif %}
+{% endfor %}
+```
+
+{% endfor %}

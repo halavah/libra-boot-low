@@ -1,0 +1,124 @@
+package {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.service;
+
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.service.IService;
+import {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}Param;
+{% if module.has_batch_operations %}import {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam;
+{% endif %}import {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.po.Biz{{ module.domain_pascal }}{{ module.code_pascal }};
+import {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO;
+
+import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
+
+/**
+ * {{ module.name }} 服务接口
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+public interface I{{ module.domain_pascal }}{{ module.code_pascal }}Service extends IService<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> {
+
+    /**
+     * 分页查询
+     *
+     * @param param 查询参数
+     * @return 分页结果
+     */
+    IPage<{{ module.domain_pascal }}{{ module.code_pascal }}VO> selectPageVo({{ module.domain_pascal }}{{ module.code_pascal }}Param param);
+
+    /**
+     * 根据ID查询详情
+     *
+     * @param id 主键ID
+     * @return VO对象
+     */
+    {{ module.domain_pascal }}{{ module.code_pascal }}VO selectVoById(Long id);
+
+    /**
+     * 新增
+     *
+     * @param param 入参
+     * @return 是否成功
+     */
+    Boolean add({{ module.domain_pascal }}{{ module.code_pascal }}Param param);
+
+    /**
+     * 修改
+     *
+     * @param param 入参
+     * @return 是否成功
+     */
+    Boolean update({{ module.domain_pascal }}{{ module.code_pascal }}Param param);
+
+    /**
+     * 导出Excel
+     *
+     * @param param 查询参数
+     * @param response HTTP响应
+     */
+    void export({{ module.domain_pascal }}{{ module.code_pascal }}Param param, HttpServletResponse response);
+
+    /**
+     * 逻辑删除（设置is_deleted=1）
+     *
+     * @param ids 记录ID列表
+     * @return 是否成功
+     */
+    Boolean logicalDeleteByIds(List<Long> ids);
+
+    /**
+     * 物理删除（DELETE FROM）
+     *
+     * @param ids 记录ID列表
+     * @return 是否成功
+     */
+    Boolean physicalRemoveByIds(List<Long> ids);
+{% if module.has_status_toggles %}
+
+    /**
+     * 状态切换
+     *
+     * @param id 记录ID
+     * @param field 字段名
+     * @param value 目标值
+     * @return 是否成功
+     */
+    Boolean toggleStatus(Long id, String field, Integer value);
+{% endif %}
+{% if module.has_batch_operations %}
+
+    /**
+     * 批量删除（逻辑删除）
+     *
+     * @param ids 记录ID列表
+     * @return 是否成功
+     */
+    Boolean batchDelete(List<Long> ids);
+
+    /**
+     * 批量物理删除（彻底删除）
+     *
+     * @param ids 记录ID列表
+     * @return 是否成功
+     */
+    Boolean batchPhysicalDelete(List<Long> ids);
+
+    /**
+     * 批量更新
+     *
+     * @param param 批量更新参数
+     * @return 是否成功
+     */
+    Boolean batchUpdate({{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam param);
+
+    /**
+     * 批量状态切换
+     *
+     * @param ids 记录ID列表
+     * @param field 字段名
+     * @param value 目标值
+     * @return 是否成功
+     */
+    Boolean batchToggle(List<Long> ids, String field, Integer value);
+{% endif %}
+}

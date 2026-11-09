@@ -1,0 +1,628 @@
+<template>
+  <!-- ==================== 主表列表 ==================== -->
+  <div v-if="isType == 1" class="container">
+    <G-form-search :form-data="masterFormData" :form-data-info="masterFormDataInfo" @call-back-data="handleMasterSearch"></G-form-search>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div style="display: flex; gap: 10px;">
+        <el-button type="primary" icon="Plus" @click="masterTopOperate(1)">新增</el-button>
+{% if module.master.has_batch_operations and module.master.batch_operations.delete.enabled %}
+        <el-button type="primary" icon="Delete" plain :disabled="masterSelectIds.length === 0" @click="handleMasterBatchDelete">批量删除</el-button>
+{% endif %}
+{% if module.master.has_batch_operations and module.master.batch_operations.physical_delete.enabled %}
+        <el-button type="primary" icon="DeleteFilled" plain :disabled="masterSelectIds.length === 0" @click="handleMasterBatchPhysicalDelete">批量彻底删除</el-button>
+{% endif %}
+{% if module.master.has_batch_operations and module.master.batch_operations["update"]["enabled"] %}
+        <el-button type="primary" plain :disabled="masterSelectIds.length === 0" @click="openMasterBatchUpdateDialog">批量更新</el-button>
+{% endif %}
+        <el-button type="primary" icon="Download" plain @click="handleMasterExport">导出</el-button>
+      </div>
+      <G-operation :show-left="false" :table-header="{ originHeader: masterOriginHeader, tableHeader: masterTableHeader }" @call-back-data="masterTopOperate"></G-operation>
+    </div>
+    <G-table
+      ref="masterTableRef"
+      :loading="masterLoading"
+      :table-data="masterTableData"
+      :table-header="masterTableHeader"
+      :table-info="{ customOperate: true{% if module.master.has_batch_operations %}, isSelect: true, reserveSelection: true, rowKey: 'id'{% endif %} }"
+      :page-no="masterPage.current"
+      :page-size="masterPage.size"
+      @call-back-data="masterListOperate"
+{% if module.master.has_batch_operations %}
+      @selection-change="handleMasterSelectionChange"
+{% endif %}
+    >
+      {% for field in master_fields %}{% if field.type == 'select' and field.options %}
+      <template #{{ field.name }}="{ row }">
+{% for opt in field.options %}        <el-tag v-{% if loop.index0 == 0 %}if{% else %}else-if{% endif %}="row.{{ field.name }} == '{{ opt.value }}'" type="{% if loop.index0 == 0 %}info{% elif loop.index0 == 1 %}primary{% elif loop.index0 == 2 %}success{% elif loop.index0 == 3 %}warning{% else %}danger{% endif %}">{{ opt.label }}</el-tag>
+{% endfor %}        <span v-else>--</span>
+      </template>
+{% endif %}{% endfor %}
+      <template #operateColumn="{ row }">
+{% if module.master.has_status_toggles %}
+{% for toggle in module.master.status_toggles %}
+        <!-- {{ toggle['label'] }} 切换按钮 -->
+        <el-button v-if="row.{{ toggle['field'] }} == 0" link type="{{ toggle['colors']['1'] }}" @click="handleMasterToggle(row, '{{ toggle['field'] }}', 1)">{{ toggle['values']['1'] }}</el-button>
+        <el-button v-else link type="{{ toggle['colors']['0'] }}" @click="handleMasterToggle(row, '{{ toggle['field'] }}', 0)">{{ toggle['values']['0'] }}</el-button>
+{% endfor %}
+{% endif %}
+        <el-button link type="primary" @click="masterListOperate(row, 1)">详情</el-button>
+        <el-button link type="primary" @click="masterListOperate(row, 2)">编辑</el-button>
+        <el-button link type="primary" @click="masterListOperate(row, 3)">明细</el-button>
+{% if module.master.single_operations.delete.enabled %}
+        <el-button link type="primary" @click="handleMasterDelete(row)">删除</el-button>
+{% endif %}
+{% if module.master.single_operations.physical_delete.enabled %}
+        <el-button link type="primary" @click="handleMasterPhysicalRemove(row)">彻底删除</el-button>
+{% endif %}
+      </template>
+    </G-table>
+    <G-pagination v-model:page-no="masterPage.current" v-model:page-size="masterPage.size" :total="masterTotal" @get-list="getMasterList" />
+{% if module.master.has_batch_operations and module.master.batch_operations["update"]["enabled"] %}
+
+    <!-- 主表批量更新弹窗 -->
+    <el-dialog title="批量更新" v-model="masterBatchUpdateVisible" width="500px" @close="resetMasterBatchUpdateForm">
+      <el-form :model="masterBatchUpdateForm" label-width="auto">
+{% for f in module.master.batch_operations["update"]["fields"] %}
+        <el-form-item label="{{ f.label }}"{% if f.required %} required{% endif %}>
+{% if f.type == 'select' %}
+          <el-select v-model="masterBatchUpdateForm.{{ f.name }}" placeholder="请选择" clearable style="width: 100%">
+{% for opt in f.options %}
+            <el-option label="{{ opt.label }}" :value="{{ opt.value }}" />
+{% endfor %}
+          </el-select>
+{% elif f.type == 'date' %}
+          <el-date-picker v-model="masterBatchUpdateForm.{{ f.name }}" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" />
+{% elif f.type == 'textarea' %}
+          <el-input v-model="masterBatchUpdateForm.{{ f.name }}" type="textarea" :rows="3" placeholder="请输入{{ f.label }}" />
+{% else %}
+          <el-input v-model="masterBatchUpdateForm.{{ f.name }}" placeholder="请输入{{ f.label }}" />
+{% endif %}
+        </el-form-item>
+{% endfor %}
+      </el-form>
+      <template #footer>
+        <el-button @click="masterBatchUpdateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="masterBatchUpdateLoading" @click="submitMasterBatchUpdate">确认</el-button>
+      </template>
+    </el-dialog>
+{% endif %}
+    <el-button data-testid="nav-{{ module.code }}-master-add-or-edit" style="display:none" @click="masterTopOperate(1)" />
+  </div>
+
+  <!-- ==================== 主表新增/编辑 ==================== -->
+  <{{ master_module.code_pascal }}AddOrEdit
+    v-else-if="isType == 2"
+    :id="masterId"
+    @call-back-data="masterAddOrEditCallback"
+  />
+
+  <!-- ==================== 主表详情 ==================== -->
+  <{{ master_module.code_pascal }}Detail
+    v-else-if="isType == 3"
+    :id="masterId"
+    @call-back-data="masterDetailCallback"
+  />
+
+  <!-- ==================== 明细列表 ==================== -->
+  <div v-else-if="isType == 4" class="container">
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+      <el-button type="primary" icon="ArrowLeft" @click="goBackToMaster">返回</el-button>
+      <span style="font-size: 16px; font-weight: bold; margin-left: 12px;">{% raw %}{{ masterName }}{% endraw %} - 明细列表</span>
+    </div>
+    <G-form-search :form-data="detailFormData" :form-data-info="detailFormDataInfo" @call-back-data="handleDetailSearch"></G-form-search>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div style="display: flex; gap: 10px;">
+        <el-button type="primary" icon="Plus" @click="detailTopOperate(1)">新增</el-button>
+{% if module.detail.has_batch_operations and module.detail.batch_operations.delete.enabled %}
+        <el-button type="primary" icon="Delete" plain :disabled="detailSelectIds.length === 0" @click="handleDetailBatchDelete">批量删除</el-button>
+{% endif %}
+{% if module.detail.has_batch_operations and module.detail.batch_operations.physical_delete.enabled %}
+        <el-button type="primary" icon="DeleteFilled" plain :disabled="detailSelectIds.length === 0" @click="handleDetailBatchPhysicalDelete">批量彻底删除</el-button>
+{% endif %}
+{% if module.detail.has_batch_operations and module.detail.batch_operations["update"]["enabled"] %}
+        <el-button type="primary" plain :disabled="detailSelectIds.length === 0" @click="openDetailBatchUpdateDialog">批量更新</el-button>
+{% endif %}
+      </div>
+      <G-operation :show-left="false" :table-header="{ originHeader: detailOriginHeader, tableHeader: detailTableHeader }" @call-back-data="detailTopOperate"></G-operation>
+    </div>
+    <G-table
+      ref="detailTableRef"
+      :loading="detailLoading"
+      :table-data="detailTableData"
+      :table-header="detailTableHeader"
+      :table-info="{ customOperate: true{% if module.detail.has_batch_operations %}, isSelect: true, reserveSelection: true, rowKey: 'id'{% endif %} }"
+      :page-no="detailPage.current"
+      :page-size="detailPage.size"
+      @call-back-data="detailListOperate"
+{% if module.detail.has_batch_operations %}
+      @selection-change="handleDetailSelectionChange"
+{% endif %}
+    >
+      {% for field in detail_fields %}{% if field.type == 'select' and field.options %}
+      <template #{{ field.name }}="{ row }">
+{% for opt in field.options %}        <el-tag v-{% if loop.index0 == 0 %}if{% else %}else-if{% endif %}="row.{{ field.name }} == '{{ opt.value }}'" type="{% if loop.index0 == 0 %}info{% elif loop.index0 == 1 %}primary{% elif loop.index0 == 2 %}success{% elif loop.index0 == 3 %}warning{% else %}danger{% endif %}">{{ opt.label }}</el-tag>
+{% endfor %}        <span v-else>--</span>
+      </template>
+{% endif %}{% endfor %}
+      <template #operateColumn="{ row }">
+{% if module.detail.has_status_toggles %}
+{% for toggle in module.detail.status_toggles %}
+        <!-- {{ toggle['label'] }} 切换按钮 -->
+        <el-button v-if="row.{{ toggle['field'] }} == 0" link type="{{ toggle['colors']['1'] }}" @click="handleDetailToggle(row, '{{ toggle['field'] }}', 1)">{{ toggle['values']['1'] }}</el-button>
+        <el-button v-else link type="{{ toggle['colors']['0'] }}" @click="handleDetailToggle(row, '{{ toggle['field'] }}', 0)">{{ toggle['values']['0'] }}</el-button>
+{% endfor %}
+{% endif %}
+        <el-button link type="primary" @click="detailListOperate(row, 1)">详情</el-button>
+        <el-button link type="primary" @click="detailListOperate(row, 2)">编辑</el-button>
+{% if module.detail.single_operations.delete.enabled %}
+        <el-button link type="primary" @click="handleDetailDelete(row)">删除</el-button>
+{% endif %}
+{% if module.detail.single_operations.physical_delete.enabled %}
+        <el-button link type="primary" @click="handleDetailPhysicalRemove(row)">彻底删除</el-button>
+{% endif %}
+      </template>
+    </G-table>
+    <G-pagination v-model:page-no="detailPage.current" v-model:page-size="detailPage.size" :total="detailTotal" @get-list="getDetailList" />
+{% if module.detail.has_batch_operations and module.detail.batch_operations["update"]["enabled"] %}
+
+    <!-- 明细表批量更新弹窗 -->
+    <el-dialog title="批量更新" v-model="detailBatchUpdateVisible" width="500px" @close="resetDetailBatchUpdateForm">
+      <el-form :model="detailBatchUpdateForm" label-width="auto">
+{% for f in module.detail.batch_operations["update"]["fields"] %}
+        <el-form-item label="{{ f.label }}"{% if f.required %} required{% endif %}>
+{% if f.type == 'select' %}
+          <el-select v-model="detailBatchUpdateForm.{{ f.name }}" placeholder="请选择" clearable style="width: 100%">
+{% for opt in f.options %}
+            <el-option label="{{ opt.label }}" :value="{{ opt.value }}" />
+{% endfor %}
+          </el-select>
+{% elif f.type == 'date' %}
+          <el-date-picker v-model="detailBatchUpdateForm.{{ f.name }}" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" />
+{% elif f.type == 'textarea' %}
+          <el-input v-model="detailBatchUpdateForm.{{ f.name }}" type="textarea" :rows="3" placeholder="请输入{{ f.label }}" />
+{% else %}
+          <el-input v-model="detailBatchUpdateForm.{{ f.name }}" placeholder="请输入{{ f.label }}" />
+{% endif %}
+        </el-form-item>
+{% endfor %}
+      </el-form>
+      <template #footer>
+        <el-button @click="detailBatchUpdateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="detailBatchUpdateLoading" @click="submitDetailBatchUpdate">确认</el-button>
+      </template>
+    </el-dialog>
+{% endif %}
+    <el-button data-testid="nav-{{ module.code }}-detail-add-or-edit" style="display:none" @click="detailTopOperate(1)" />
+  </div>
+
+  <!-- ==================== 明细新增/编辑 ==================== -->
+  <{{ module.code_pascal }}AddOrEdit
+    v-else-if="isType == 5"
+    :id="detailId"
+    :{{ master_module.code }}-id="masterId"
+    @call-back-data="detailAddOrEditCallback"
+  />
+
+  <!-- ==================== 明细详情 ==================== -->
+  <{{ module.code_pascal }}Detail
+    v-else-if="isType == 6"
+    :id="detailId"
+    @call-back-data="detailDetailCallback"
+  />
+</template>
+
+<script setup>
+import { reactive, toRefs, onMounted, ref } from "vue"
+import { ElMessage, ElMessageBox } from "element-plus"
+import api from "@/service/{{ module.domain }}/{{ group_code }}.js"
+import fileExport from '@/common/utils/fileExport'
+import {{ master_module.code_pascal }}AddOrEdit from "./{{ module.code }}-{{ master_module.code }}-add-or-edit.vue"
+import {{ master_module.code_pascal }}Detail from "./{{ module.code }}-{{ master_module.code }}-detail.vue"
+import {{ module.code_pascal }}AddOrEdit from "./{{ module.code }}-add-or-edit.vue"
+import {{ module.code_pascal }}Detail from "./{{ module.code }}-detail.vue"
+// ==================== 主表 ====================
+const state = reactive({
+  isType: 1, // 1:主表列表 2:主表编辑 3:主表详情 4:明细列表 5:明细编辑 6:明细详情
+  masterId: "",
+  masterName: "",
+  masterSelectIds: [],
+  masterTotal: 0,
+  masterPage: { current: 1, size: 10 },
+  masterFormData: {
+{% for field in master_fields %}{% if field.type == 'date' or field.type == 'datetime' %}    {{ field.name }}: [],
+{% else %}    {{ field.name }}: '',
+{% endif %}{% endfor %}  },
+  masterOriginHeader: [
+{% for field in master_fields %}{% if not field.generated %}    { label: "{{ field.label }}", prop: "{{ field.name }}"{% if field.type == 'select' and field.options %}, type: "slot"{% endif %} },
+{% endif %}{% endfor %}    { label: "创建时间", prop: "createTime" },
+  ],
+  masterTableHeader: [],
+  detailId: "",
+  detailSelectIds: [],
+  detailTotal: 0,
+  detailPage: { current: 1, size: 10 },
+  detailFormData: {
+    {{ master_module.code }}Id: "",
+{% for field in detail_fields %}{% if field.type == 'date' or field.type == 'datetime' %}    {{ field.name }}: [],
+{% else %}    {{ field.name }}: '',
+{% endif %}{% endfor %}  },
+  detailOriginHeader: [
+{% for field in detail_fields %}{% if not field.generated %}    { label: "{{ field.label }}", prop: "{{ field.name }}"{% if field.type == 'select' and field.options %}, type: "slot"{% endif %} },
+{% endif %}{% endfor %}    { label: "创建时间", prop: "createTime" },
+  ],
+  detailTableHeader: []
+})
+const masterTableData = ref([])
+const masterLoading = ref(false)
+const detailTableData = ref([])
+const detailLoading = ref(false)
+const {
+  isType, masterId, masterName, masterSelectIds, masterTotal, masterPage,
+  masterFormData, masterOriginHeader, masterTableHeader,
+  detailId, detailSelectIds, detailTotal, detailPage,
+  detailFormData, detailOriginHeader, detailTableHeader
+} = toRefs(state)
+const masterTableRef = ref(null)
+const detailTableRef = ref(null)
+const masterFormDataInfo = [
+{% for field in master_fields %}{% if field.type == 'select' %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'select', span: 4{% if field.options %}, options: {{ field.options_json }}{% endif %} },
+{% elif field.type == 'date' or field.type == 'datetime' %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'date', span: 8, dateInfo: { type: 'daterange', format: 'YYYY-MM-DD', vFormat: 'YYYY-MM-DD' } },
+{% elif field.type == 'date-year' %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'input', span: 4 },
+{% else %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'input', span: 6 },
+{% endif %}{% endfor %}]
+const detailFormDataInfo = [
+{% for field in detail_fields %}{% if field.type == 'select' %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'select', span: 4{% if field.options %}, options: {{ field.options_json }}{% endif %} },
+{% elif field.type == 'date' or field.type == 'datetime' %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'date', span: 8, dateInfo: { type: 'daterange', format: 'YYYY-MM-DD', vFormat: 'YYYY-MM-DD' } },
+{% elif field.type == 'date-year' %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'input', span: 4 },
+{% else %}    { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'input', span: 6 },
+{% endif %}{% endfor %}]
+onMounted(() => {
+  state.masterTableHeader = state.masterOriginHeader
+  state.detailTableHeader = state.detailOriginHeader
+  getMasterList()
+})
+// ==================== 主表操作 ====================
+const getMasterList = () => {
+  masterLoading.value = true
+  const params = {
+    ...state.masterFormData,
+    current: state.masterPage.current,
+    size: state.masterPage.size
+  }
+{% for field in master_fields %}{% if field.type == 'date' or field.type == 'datetime' %}
+  // {{ field.label }}: date range -> Begin/End
+  if (state.masterFormData.{{ field.name }} && state.masterFormData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = state.masterFormData.{{ field.name }}[0]
+    params.{{ field.name }}End = state.masterFormData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.getMasterList(params).then((res) => {
+    masterTableData.value = res.records || []
+    state.masterTotal = res.total || 0
+  }).finally(() => { masterLoading.value = false })
+}
+const handleMasterSearch = () => {
+  state.masterPage.current = 1
+  getMasterList()
+}
+const masterTopOperate = (val, arg) => {
+  if (val == 1) {
+    state.masterId = ""
+    state.isType = 2
+  } else if (val == 7) {
+    getMasterList()
+  } else if (val == 8) {
+    state.masterTableHeader = arg
+  }
+}
+const masterListOperate = (row, type) => {
+  if (type == 1) {
+    state.masterId = row.id
+    state.isType = 3
+  } else if (type == 2) {
+    state.masterId = row.id
+    state.isType = 2
+  } else if (type == 3) {
+    state.masterId = row.id
+    state.masterName = row.{{ master_display_field | default('name') }} || row.id
+    state.detailFormData.{{ master_module.code }}Id = row.id
+    state.detailPage.current = 1
+    state.isType = 4
+    getDetailList()
+  }
+}
+const masterAddOrEditCallback = (val) => {
+  state.isType = 1
+  if (val === 1) getMasterList()
+}
+const masterDetailCallback = () => { state.isType = 1 }
+const handleMasterDelete = (row) => {
+  ElMessageBox.confirm("确定删除该记录吗？关联的明细数据也会被删除！", "提示", { type: "warning" }).then(() => {
+    api.removeMaster([row.id]).then(() => {
+      ElMessage.success("删除成功")
+      getMasterList()
+    })
+  })
+}
+const handleMasterPhysicalRemove = (row) => {
+  ElMessageBox.confirm("确定彻底删除该记录吗？此操作不可恢复，关联的明细数据也会被删除！", "警告", { type: "warning" }).then(() => {
+    api.physicalRemoveMaster([row.id]).then(() => {
+      ElMessage.success("彻底删除成功")
+      getMasterList()
+    })
+  })
+}
+const handleMasterExport = () => {
+  const params = { ...state.masterFormData }
+{% for field in master_fields %}{% if field.type == 'date' or field.type == 'datetime' %}
+  if (state.masterFormData.{{ field.name }} && state.masterFormData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = state.masterFormData.{{ field.name }}[0]
+    params.{{ field.name }}End = state.masterFormData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.exportMaster(params).then((res) => {
+    fileExport(res.data, "xlsx", "{{ master_module.name }}列表")
+  })
+}
+// ==================== 明细操作 ====================
+const getDetailList = () => {
+  detailLoading.value = true
+  const params = {
+    ...state.detailFormData,
+    current: state.detailPage.current,
+    size: state.detailPage.size
+  }
+{% for field in detail_fields %}{% if field.type == 'date' or field.type == 'datetime' %}
+  // {{ field.label }}: date range -> Begin/End
+  if (state.detailFormData.{{ field.name }} && state.detailFormData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = state.detailFormData.{{ field.name }}[0]
+    params.{{ field.name }}End = state.detailFormData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.getDetailList(params).then((res) => {
+    detailTableData.value = res.records || []
+    state.detailTotal = res.total || 0
+  }).finally(() => { detailLoading.value = false })
+}
+const handleDetailSearch = () => {
+  state.detailPage.current = 1
+  getDetailList()
+}
+const detailTopOperate = (val, arg) => {
+  if (val == 1) {
+    state.detailId = ""
+    state.isType = 5
+  } else if (val == 7) {
+    getDetailList()
+  } else if (val == 8) {
+    state.detailTableHeader = arg
+  }
+}
+const detailListOperate = (row, type) => {
+  if (type == 1) {
+    state.detailId = row.id
+    state.isType = 6
+  } else if (type == 2) {
+    state.detailId = row.id
+    state.isType = 5
+  }
+}
+const detailAddOrEditCallback = (val) => {
+  state.isType = 4
+  if (val === 1) getDetailList()
+}
+const detailDetailCallback = () => { state.isType = 4 }
+const handleDetailDelete = (row) => {
+  ElMessageBox.confirm("确定删除该记录吗？", "提示", { type: "warning" }).then(() => {
+    api.removeDetail([row.id]).then(() => {
+      ElMessage.success("删除成功")
+      getDetailList()
+    })
+  })
+}
+const handleDetailPhysicalRemove = (row) => {
+  ElMessageBox.confirm("确定彻底删除该记录吗？此操作不可恢复！", "警告", { type: "warning" }).then(() => {
+    api.physicalRemoveDetail([row.id]).then(() => {
+      ElMessage.success("彻底删除成功")
+      getDetailList()
+    })
+  })
+}
+const goBackToMaster = () => {
+  state.isType = 1
+  state.detailFormData.{{ master_module.code }}Id = ""
+}
+{% if module.master.has_status_toggles %}
+// 主表状态切换配置
+const masterStatusToggles = {{ module.master.status_toggles | tojson }}
+// 主表状态切换
+const handleMasterToggle = (row, field, value) => {
+  const toggle = masterStatusToggles.find(t => t.field === field)
+  const valueLabel = toggle.values[value] || value
+  ElMessageBox.confirm(`确定要${valueLabel}吗？`, '提示', { type: 'warning' }).then(() => {
+    api.toggleMaster({ id: row.id, field, value }).then(() => {
+      ElMessage.success('操作成功')
+      getMasterList()
+    })
+  })
+}
+{% endif %}
+{% if module.detail.has_status_toggles %}
+// 明细表状态切换配置
+const detailStatusToggles = {{ module.detail.status_toggles | tojson }}
+// 明细表状态切换
+const handleDetailToggle = (row, field, value) => {
+  const toggle = detailStatusToggles.find(t => t.field === field)
+  const valueLabel = toggle.values[value] || value
+  ElMessageBox.confirm(`确定要${valueLabel}吗？`, '提示', { type: 'warning' }).then(() => {
+    api.toggleDetail({ id: row.id, field, value }).then(() => {
+      ElMessage.success('操作成功')
+      getDetailList()
+    })
+  })
+}
+{% endif %}
+{% if module.master.has_batch_operations %}
+// 主表批量操作
+const handleMasterSelectionChange = (selection) => {
+  state.masterSelectIds = selection.map(item => item.id)
+}
+const handleMasterBatchDelete = () => {
+  if (state.masterSelectIds.length === 0) {
+    ElMessage.warning('请先选择要删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认删除选中的 ${state.masterSelectIds.length} 条记录？关联的明细数据也会被删除！`, '提示', { type: 'warning' }).then(() => {
+    api.batchDeleteMaster(state.masterSelectIds).then(() => {
+      ElMessage.success('删除成功')
+      state.masterSelectIds = []
+      masterTableRef.value.clearSelection()
+      getMasterList()
+    })
+  })
+}
+const handleMasterBatchPhysicalDelete = () => {
+  if (state.masterSelectIds.length === 0) {
+    ElMessage.warning('请先选择要彻底删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认彻底删除选中的 ${state.masterSelectIds.length} 条记录？此操作不可恢复，关联的明细数据也会被删除！`, '警告', { type: 'warning' }).then(() => {
+    api.batchPhysicalDeleteMaster(state.masterSelectIds).then(() => {
+      ElMessage.success('彻底删除成功')
+      state.masterSelectIds = []
+      masterTableRef.value.clearSelection()
+      getMasterList()
+    })
+  })
+}
+// 批量更新（弹窗模式）
+const masterBatchUpdateVisible = ref(false)
+const masterBatchUpdateLoading = ref(false)
+const masterBatchUpdateForm = reactive({
+{% for f in module.master.batch_operations["update"]["fields"] %}
+  {{ f.name }}: null,
+{% endfor %}
+})
+const openMasterBatchUpdateDialog = () => {
+  if (state.masterSelectIds.length === 0) {
+    ElMessage.warning('请先选择要操作的记录')
+    return
+  }
+  masterBatchUpdateVisible.value = true
+}
+const resetMasterBatchUpdateForm = () => {
+{% for f in module.master.batch_operations["update"]["fields"] %}
+  masterBatchUpdateForm.{{ f.name }} = null
+{% endfor %}
+}
+const submitMasterBatchUpdate = () => {
+  const data = {}
+{% for f in module.master.batch_operations["update"]["fields"] %}
+  if (masterBatchUpdateForm.{{ f.name }} !== null && masterBatchUpdateForm.{{ f.name }} !== '') {
+    data['{{ f.name }}'] = masterBatchUpdateForm.{{ f.name }}
+  }
+{% endfor %}
+  if (Object.keys(data).length === 0) {
+    ElMessage.warning('请至少填写一个字段')
+    return
+  }
+  masterBatchUpdateLoading.value = true
+  api.batchUpdateMaster({ ids: state.masterSelectIds, data }).then(() => {
+    ElMessage.success('批量更新成功')
+    masterBatchUpdateVisible.value = false
+    resetMasterBatchUpdateForm()
+    state.masterSelectIds = []
+      masterTableRef.value.clearSelection()
+    getMasterList()
+  }).finally(() => {
+    masterBatchUpdateLoading.value = false
+  })
+}
+{% endif %}
+{% if module.detail.has_batch_operations %}
+// 明细表批量操作
+const handleDetailSelectionChange = (selection) => {
+  state.detailSelectIds = selection.map(item => item.id)
+}
+const handleDetailBatchDelete = () => {
+  if (state.detailSelectIds.length === 0) {
+    ElMessage.warning('请先选择要删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认删除选中的 ${state.detailSelectIds.length} 条记录?`, '提示', { type: 'warning' }).then(() => {
+    api.batchDeleteDetail(state.detailSelectIds).then(() => {
+      ElMessage.success('删除成功')
+      state.detailSelectIds = []
+      detailTableRef.value.clearSelection()
+      getDetailList()
+    })
+  })
+}
+const handleDetailBatchPhysicalDelete = () => {
+  if (state.detailSelectIds.length === 0) {
+    ElMessage.warning('请先选择要彻底删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认彻底删除选中的 ${state.detailSelectIds.length} 条记录？此操作不可恢复！`, '警告', { type: 'warning' }).then(() => {
+    api.batchPhysicalDeleteDetail(state.detailSelectIds).then(() => {
+      ElMessage.success('彻底删除成功')
+      state.detailSelectIds = []
+      detailTableRef.value.clearSelection()
+      getDetailList()
+    })
+  })
+}
+// 明细表批量更新（弹窗模式）
+const detailBatchUpdateVisible = ref(false)
+const detailBatchUpdateLoading = ref(false)
+const detailBatchUpdateForm = reactive({
+{% for f in module.detail.batch_operations["update"]["fields"] %}
+  {{ f.name }}: null,
+{% endfor %}
+})
+const openDetailBatchUpdateDialog = () => {
+  if (state.detailSelectIds.length === 0) {
+    ElMessage.warning('请先选择要操作的记录')
+    return
+  }
+  detailBatchUpdateVisible.value = true
+}
+const resetDetailBatchUpdateForm = () => {
+{% for f in module.detail.batch_operations["update"]["fields"] %}
+  detailBatchUpdateForm.{{ f.name }} = null
+{% endfor %}
+}
+const submitDetailBatchUpdate = () => {
+  const data = {}
+{% for f in module.detail.batch_operations["update"]["fields"] %}
+  if (detailBatchUpdateForm.{{ f.name }} !== null && detailBatchUpdateForm.{{ f.name }} !== '') {
+    data['{{ f.name }}'] = detailBatchUpdateForm.{{ f.name }}
+  }
+{% endfor %}
+  if (Object.keys(data).length === 0) {
+    ElMessage.warning('请至少填写一个字段')
+    return
+  }
+  detailBatchUpdateLoading.value = true
+  api.batchUpdateDetail({ ids: state.detailSelectIds, data }).then(() => {
+    ElMessage.success('批量更新成功')
+    detailBatchUpdateVisible.value = false
+    resetDetailBatchUpdateForm()
+    state.detailSelectIds = []
+      detailTableRef.value.clearSelection()
+    getDetailList()
+  }).finally(() => {
+    detailBatchUpdateLoading.value = false
+  })
+}
+{% endif %}
+</script>
+<style lang="scss" scoped>
+.container {
+  padding: 20px;
+}
+</style>

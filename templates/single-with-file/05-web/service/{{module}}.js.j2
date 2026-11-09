@@ -1,0 +1,122 @@
+/**
+ * {{ module.name }} API 服务
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+
+import http from '@/common/utils/http'
+
+const SVC = '/layer/v1/sys-service'
+const BASE_URL = `${SVC}/{{ module.domain }}/{{ module.code }}`
+
+export default {
+  /**
+   * 分页查询
+   */
+  getList(params) {
+    return http.get(`${BASE_URL}/list`, params)
+  },
+
+  /**
+   * 查询详情（含附件列表）
+   */
+  getDetail(id) {
+    return http.get(`${BASE_URL}/detail`, { id })
+  },
+
+  /**
+   * 新增
+   */
+  add(data) {
+    return http.post(`${BASE_URL}/add`, data)
+  },
+
+  /**
+   * 修改
+   */
+  update(data) {
+    return http.post(`${BASE_URL}/update`, data)
+  },
+
+  /**
+   * 删除
+   */
+  remove(ids) {
+    return http.post(`${BASE_URL}/remove`, ids)
+  },
+
+  /**
+   * 导出
+   */
+  exportData(params) {
+    return http.export(`${BASE_URL}/export`, params)
+  },
+
+  /**
+   * 上传附件（FormData）
+   */
+  upload(data) {
+    return http.post(`${BASE_URL}/upload`, data)
+  },
+
+  /**
+   * 附件列表
+   */
+  fileList({{ module.code }}Id) {
+    return http.get(`${BASE_URL}/file/list`, { {{ module.code }}Id })
+  },
+
+  /**
+   * 删除附件
+   */
+  fileRemove(fileIds) {
+    return http.post(`${BASE_URL}/file/remove`, fileIds)
+  },
+
+  /**
+   * 彻底删除（单个）
+   */
+  physicalRemove(ids) {
+    return http.post(`${BASE_URL}/physical-remove`, ids)
+  },
+
+  /**
+   * 批量彻底删除
+   */
+  batchPhysicalDelete(ids) {
+    return http.post(`${BASE_URL}/batch-physical-delete`, ids)
+  },
+{% if module.has_status_toggles %}
+
+  /**
+   * 状态切换
+   */
+  toggle(data) {
+    return http.post(`${BASE_URL}/toggle`, data)
+  },
+{% endif %}
+{% if module.has_batch_operations %}
+
+  /**
+   * 批量删除
+   */
+  batchDelete(ids) {
+    return http.post(`${BASE_URL}/batch-delete`, ids)
+  },
+
+  /**
+   * 批量更新
+   */
+  batchUpdate(data) {
+    return http.post(`${BASE_URL}/batch-update`, data)
+  },
+
+  /**
+   * 批量状态切换
+   */
+  batchToggle(data) {
+    return http.post(`${BASE_URL}/batch-toggle`, data)
+  }
+{% endif %}
+}

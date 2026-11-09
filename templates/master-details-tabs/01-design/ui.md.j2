@@ -1,0 +1,85 @@
+---
+name: {{ module.code_pascal | upper }} UI Design Standards (Cognitive Optimized)
+description: {{ module.name }} UI 设计（主表 + {{ detail_modules | length }} 个明细表）。
+---
+
+# {{ module.code_pascal | upper }} 页面设计 (UI)
+
+> **模块**: {{ module.name }}（{{ module.domain_chinese }}）
+> **应用**: `{{ module.domain }}/{{ module.code }}`
+> **明细表数量**: {{ detail_modules | length }} 个
+
+## 1. 列表页 (`index.vue`)
+
+### 1.1 搜索区 (FormDataInfo) — 主表字段
+| Label | Prop | Type | Span | 备注 |
+| :--- | :--- | :--- | :--- | :--- |
+{% for field in master_fields if field.filterable %}
+| {{ field.label }} | `{{ field.name }}` | {{ 'select' if field.type == 'select' else ('year' if field.type == 'date-year' else ('daterange' if field.type in ['date', 'datetime'] else 'input')) }} | 6 | |
+{% endfor %}
+
+### 1.2 表格列 (OriginHeader) — 主表字段
+{% set list_fields = master_fields | selectattr('show_in_list') | list %}
+{% for field in list_fields %}
+{{ loop.index }}.  **{{ field.label }}**: `{{ field.name }}`
+{% endfor %}
+{{ list_fields | length + 1 }}.  **操作列**: 详情 / 编辑 / {% if detail_modules | length > 1 %}[明细下拉菜单]{% else %}明细{% endif %} / 删除
+
+### 1.3 明细导航
+{% if detail_modules | length > 1 %}
+每行操作区包含 `el-dropdown` 下拉菜单，列出所有明细表名称，点击进入对应明细列表页。
+{% else %}
+每行操作区包含「明细」按钮，直接进入明细列表页。
+{% endif %}
+
+## 2. isType 页面切换编码
+
+| isType | 页面 |
+| :--- | :--- |
+| 1 | 主表列表 |
+| 2 | 主表新增/编辑 |
+| 3 | 主表详情 |
+{% for dm in detail_modules %}
+{% set base = 4 + loop.index0 * 3 %}
+| {{ base }} | {{ dm.name }}明细列表 |
+| {{ base + 1 }} | {{ dm.name }}新增/编辑 |
+| {{ base + 2 }} | {{ dm.name }}详情 |
+{% endfor %}
+
+## 3. 主表页面
+
+### 3.1 主表新增/编辑 (`{{ module.code }}-{{ master_module.code }}-add-or-edit.vue`)
+| 字段 | 控件 | 必填 |
+| :--- | :--- | :--- |
+{% for field in master_fields if not field.generated %}
+| {{ field.label }} | {{ field.vue_component | split('.') | first }} | {{ '✅' if field.required else '' }} |
+{% endfor %}
+
+### 3.2 主表详情 (`{{ module.code }}-{{ master_module.code }}-detail.vue`)
+*   使用 `el-descriptions` 展示 {{ master_fields | rejectattr('generated') | list | length }} 个主表字段
+
+{% for dm in detail_modules %}
+## {{ loop.index + 3 }}. 明细表{{ loop.index }}页面（{{ dm.name }}）
+
+### {{ loop.index + 3 }}.1 搜索区
+| Label | Prop | Type | Span | 备注 |
+| :--- | :--- | :--- | :--- | :--- |
+{% for field in dm.fields if field.filterable %}
+| {{ field.label }} | `{{ field.name }}` | {{ 'select' if field.type == 'select' else ('daterange' if field.type in ['date', 'datetime'] else 'input') }} | 6 | |
+{% endfor %}
+
+### {{ loop.index + 3 }}.2 表格列
+{% set dm_list_fields = dm.fields | selectattr('show_in_list') | list %}
+{% for field in dm_list_fields %}
+{{ loop.index }}.  **{{ field.label }}**: `{{ field.name }}`
+{% endfor %}
+{{ dm_list_fields | length + 1 }}.  **操作列**: 详情 / 编辑 / 删除
+
+### {{ loop.index + 3 }}.3 新增/编辑页 (`{{ module.code }}-{{ dm.code }}-add-or-edit.vue`)
+| 字段 | 控件 | 必填 |
+| :--- | :--- | :--- |
+{% for field in dm.fields if not field.generated %}
+| {{ field.label }} | {{ field.vue_component | split('.') | first }} | {{ '✅' if field.required else '' }} |
+{% endfor %}
+
+{% endfor %}

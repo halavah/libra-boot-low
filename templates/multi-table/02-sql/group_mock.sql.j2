@@ -1,0 +1,35 @@
+-- =====================================================
+-- {{ group_name }} 模块测试数据脚本
+-- 每个子表 25 条
+-- =====================================================
+SET NAMES utf8mb4;
+
+-- ----------------------------
+-- TRUNCATE（子表无外键依赖，顺序不限，逆序清理）
+-- ----------------------------
+{% for st in sub_tables | reverse %}
+TRUNCATE TABLE `{{ st.module.table_name }}`;
+{% endfor %}
+
+-- ----------------------------
+-- 插入测试数据
+-- ----------------------------
+{% for st in sub_tables %}
+{% set base_id = loop.index * 1000000 %}
+-- {{ st.module.name }}（{{ st.module.code }}，25条，ID {{ base_id + 1 }}–{{ base_id + 25 }}）
+-- 年份分布: 1-9条(2023), 10-18条(2024), 19-25条(2025)
+INSERT INTO `{{ st.module.table_name }}` (
+  `id`{% for field in st.fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+({{ base_id + i }}, {% for field in st.fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+{% endfor %}
+
+SELECT '✅ {{ group_name }} 测试数据导入完成（每子表25条，共{{ sub_tables | length }}个子表）' AS status;

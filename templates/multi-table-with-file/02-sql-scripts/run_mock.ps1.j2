@@ -1,0 +1,138 @@
+<#
+.SYNOPSIS
+    {{ module.code.upper() }} 模块 - SQL执行工具 (Windows PowerShell 包装器)
+
+.DESCRIPTION
+    run_mock.py 的 Windows 包装器。
+    本脚本不含任何业务逻辑，职责单一：
+      1. 检查运行环境（Python + 依赖）
+      2. 将参数原样透传给 run_mock.py
+    真正的执行逻辑全部在 run_mock.py 中，两者分工明确。
+
+    ══════════════════════════════════════════════════════
+    【脚本定位】
+      02-sql-scripts/run_mock.ps1 — run_mock.py 的 Windows 包装器
+      面向 Windows 开发环境，与 run_mock.sh 功能对等，
+      仅在语法和 Python 命令探测方式上有所不同。
+
+    【设计思路】
+      1. 薄包装原则
+         PowerShell 脚本只做"启动器"，不重复实现业务逻辑。
+         维护时只需修改 run_mock.py，ps1 无需同步改动。
+
+      2. 具名参数设计
+         使用 param([string]$Mode, [switch]$Yes) 而非位置参数，
+         调用者可以写 .\run_mock.ps1 -Mode 0 -Yes，语义更清晰；
+         同时保留无参数调用方式进入交互菜单。
+         示例：
+           .\run_mock.ps1              → 进入交互菜单
+           .\run_mock.ps1 0 -Yes       → 非交互全量重置（自动化专用）
+           .\run_mock.ps1 -Mode 0 -Yes → 等价写法，更具可读性
+
+      3. 依赖前置检查
+         在执行前统一检查 PyYAML、PyMySQL，
+         给出明确的安装提示后退出，避免 Python 在深层报出难懂的 ImportError。
+
+      4. python3 / python 双探测
+         Windows 上部分安装方式只有 python，部分有 python3，
+         优先探测 python3，回退到 python，确保兼容性。
+
+      5. $PSBoundParameters 判断有无传参
+         比检查 $null 更可靠：区分"未传参"与"显式传空字符串"。
+
+    【执行流程】
+      启动
+        ↓ 定位脚本目录（$PSScriptRoot）
+        ↓ 探测 python3 / python 命令
+        ↓ 检查 PyYAML、PyMySQL 依赖
+        ↓ 判断 $PSBoundParameters 是否包含 Mode
+          ├─ 有 Mode → 命令行模式 → 拼接 $skipConfirm → python run_mock.py $Mode $skipConfirm
+          └─ 无 Mode → 交互式模式 → python run_mock.py（进入菜单）
+
+    【调用关系】
+      ┌──────────────────────────────────────────────────────────┐
+      │  手动执行        .\run_mock.ps1                          │
+      │  手动执行        .\run_mock.ps1 0 -Yes                   │
+      │  L3闭环脚本调用  .\run_mock.ps1 0 -Yes（自动化场景）     │
+      └──────────────────────────────────────────────────────────┘
+      注意：test_mock.py 会直接调用 run_mock.py（Python→Python），
+            不经过本 ps1 包装器，以避免子进程的额外开销。
+
+    【注意事项】
+      - 首次使用若遇执行策略限制，运行：
+          Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+      - 依赖安装：pip install pyyaml pymysql
+      - 数据库配置位于 ../../../../.claude/.env
+    ══════════════════════════════════════════════════════
+#>
+
+# ---- 参数定义 ----
+# Mode  : 操作模式  0=表结构+数据  1=仅表结构  2=仅数据
+# Yes   : Switch，携带时跳过二次确认（等价于 --yes）
+param(
+    [string]$Mode,
+    [switch]$Yes
+)
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+# 获取脚本所在目录
+$SCRIPT_DIR = $PSScriptRoot
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  {{ module.code.upper() }} 模块 - SQL执行工具 (Windows)" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+# ---- 探测 Python 命令（python3 优先，回退到 python）----
+$PythonCmd = $null
+if (Get-Command python3 -ErrorAction SilentlyContinue) {
+    $PythonCmd = "python3"
+} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    $PythonCmd = "python"
+} else {
+    Write-Host "错误: 未找到 python，请先安装 Python 3" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "[OK] Python: $(& $PythonCmd --version)" -ForegroundColor Green
+
+# ---- 检查依赖 ----
+$missingDeps = $false
+
+& $PythonCmd -c "import yaml" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] 缺少依赖: PyYAML" -ForegroundColor Red
+    $missingDeps = $true
+}
+
+& $PythonCmd -c "import pymysql" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] 缺少依赖: PyMySQL" -ForegroundColor Red
+    $missingDeps = $true
+}
+
+if ($missingDeps) {
+    Write-Host ""
+    Write-Host "请先安装依赖:" -ForegroundColor Yellow
+    Write-Host "  pip install pyyaml pymysql" -ForegroundColor Cyan
+    exit 1
+}
+
+Write-Host "[OK] 依赖检查通过" -ForegroundColor Green
+Write-Host ""
+
+# ---- 透传参数给 Python 核心脚本 ----
+# 支持：无参数（交互菜单）/ 带参数（命令行模式，如 0 -Yes）
+$pyScript = Join-Path $SCRIPT_DIR "run_mock.py"
+
+if ($PSBoundParameters.ContainsKey("Mode")) {
+    # 命令行模式：拼接可选的 --yes 参数
+    $extraArgs = @()
+    if ($Yes) {
+        $extraArgs += "--yes"
+    }
+    & $PythonCmd $pyScript $Mode @extraArgs
+} else {
+    # 交互式模式：直接进入 run_mock.py 的菜单
+    & $PythonCmd $pyScript
+}

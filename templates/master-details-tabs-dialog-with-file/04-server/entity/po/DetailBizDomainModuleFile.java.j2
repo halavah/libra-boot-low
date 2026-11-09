@@ -1,0 +1,59 @@
+{% if has_detail_file %}
+package {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+import java.time.LocalDateTime;
+
+/**
+ * {{ module.name }} 附件表
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@TableName("{{ module.table_name }}_file")
+@EqualsAndHashCode(callSuper = false)
+public class Biz{{ module.domain_pascal }}{{ module.code_pascal }}File {
+
+    @TableId(type = IdType.ASSIGN_ID)
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long id;
+
+    /** 关联明细表ID */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long {{ module.code_camel }}Id;
+
+    /** 附件类型：{% for ft in module.file_types %}{{ ft.code }}={{ ft.label }}{% if not loop.last %} / {% endif %}{% endfor %} */
+    private String fileType;
+
+    /** MinIO文件绝对地址 */
+    private String fileUrl;
+
+    /** 原始文件名（前端回显） */
+    private String fileName;
+
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long createDept;
+
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long createUser;
+
+    private LocalDateTime createTime;
+
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long updateUser;
+
+    private LocalDateTime updateTime;
+
+    @TableLogic
+    private Integer isDeleted;
+}
+{% endif %}

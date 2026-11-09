@@ -1,0 +1,31 @@
+name: Publish to PyPI
+
+# Trusted Publishing（OIDC 免 token）：需在 pypi.org 项目页一次性配置
+# Publishing > Add Trusted Publisher: owner=halavah repo=libra-boot-low workflow=pypi.yml environment 留空
+# 配置完成后，推送 v* 标签即自动发布
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # 私有仓 checkout 必需（permissions 块会覆盖隐式默认）
+      id-token: write   # OIDC 必需
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install build deps
+      run: pip install build pyyaml jinja2
+    - name: Sanity tests before publish
+      run: |
+        pip install pytest
+        python -m pytest tests/ -q
+    - name: Build distributions
+      run: python -m build
+    - name: Publish to PyPI (Trusted Publishing)
+      uses: pypa/gh-action-pypi-publish@release/v1

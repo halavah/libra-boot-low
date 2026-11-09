@@ -1,0 +1,245 @@
+// ============================================================
+// 脚本名称: index.test.js
+// 生成时间: {{ generated_date }}
+// 模    块: {{ module.code }}
+// 作    用: 集成测试 - 模拟用户点击所有按钮，断言 API status=200，截图存档
+//
+// 【运行方式】
+//   通过 run_page_test.sh（或 .ps1）启动，脚本自动生成本文件再运行
+//
+// 【测试策略】
+//   ui          → 点击 + 截图 + 不崩溃
+//   get_read    → waitForResponse(GET) + status=200
+//   post_write  → DB重置 + 全量表单填充 + waitForResponse(POST) + status=200
+//   post_delete → 点删除 + 确认弹窗 + waitForResponse(POST remove) + status=200
+//
+// 【输出目录】
+//   ../05-out/{RUN_ID}/           - 截图存档
+//   ../05-out/{RUN_ID}/api-log.json  - API 日志（与截图同目录）
+//   ../05-out/{RUN_ID}/api.har       - HAR 录制
+// ============================================================
+
+const { test, expect } = require('@playwright/test');
+const fs   = require('fs');
+const path = require('path');
+
+const PAGE_URL       = '/{{ module.domain }}/{{ module.code }}/index';
+const RUN_ID         = process.env.TEST_RUN_ID || `run_${Date.now()}`;
+const PRINT_DIR      = path.resolve(__dirname, '../05-out', RUN_ID);
+const API_LOG_PATH   = path.join(PRINT_DIR, 'api-log.json');
+const MOCK_SCRIPT    = path.resolve(__dirname, '../02-sql-scripts/run_mock.sh');
+
+// ============================================================
+// 工具函数
+// ============================================================
+
+/** 确保目录存在 */
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+/** 追加一条记录到 api-log.json */
+function appendApiLog(entry) {
+  try {
+    ensureDir(PRINT_DIR);
+    let log = [];
+    try { log = JSON.parse(fs.readFileSync(API_LOG_PATH, "utf-8")); } catch {}
+    log.push(entry);
+    fs.writeFileSync(API_LOG_PATH, JSON.stringify(log, null, 2));
+  } catch {}
+}
+
+/** 执行 DB 重置脚本 */
+function resetDb() {
+  try {
+    require('child_process').execSync(`bash "${MOCK_SCRIPT}" 0 --yes`, {
+      stdio: 'pipe',
+      timeout: 60000,
+    });
+    console.log('[beforeAll] ✅ 数据库已重置 (run_mock.sh 0 --yes)');
+  } catch (e) {
+    console.warn('[beforeAll] ⚠️  DB 重置失败，继续测试:', String(e.message).slice(0, 200));
+  }
+}
+
+/** 通用 beforeEach 配置: 打开页面、关闭引导遮罩、启动 API 日志监听 */
+async function commonBeforeEach(page) {
+  // ⚠️  监听器必须在 goto() 之前注册，否则页面加载阶段的 /list 等接口会漏采
+  page.on('response', async (response) => {
+    if (!response.url().includes('/layer/')) return;
+    try {
+      const body = await response.text().catch(() => '');
+      appendApiLog({
+        ts:     new Date().toISOString(),
+        status: response.status(),
+        method: response.request().method(),
+        url:    response.url(),
+        body:   body.slice(0, 1000),
+      });
+    } catch {}
+  });
+
+  await page.goto(PAGE_URL);
+  await page.waitForLoadState('networkidle', { timeout: 15000 });
+  await page.evaluate(() => {
+    document.querySelectorAll('.driver-overlay, .driver-popover, .driver-popover-next-btn').forEach(el => el.remove());
+    document.body.classList.remove('driver-active', 'driver-fade');
+  }).catch(() => {});
+}
+
+// ================================================================
+// 来源文件: index.vue
+// 按钮数量: 5
+// ================================================================
+test.describe('{{ module.code.upper() }} | index', () => {
+
+  // beforeAll: 重置数据库，确保测试数据干净
+  test.beforeAll(() => { resetDb(); });
+
+  // beforeEach: 打开页面、关闭遮罩、API 日志监听
+  test.beforeEach(async ({ page }) => {
+    await commonBeforeEach(page);
+  });
+
+  // 无直接 API 调用
+  test('点击「新增」按钮', async ({ page }) => {
+
+    await page.getByRole('button', { name: '新增' }).first().click();
+
+    // 截图存档到本次运行目录
+    ensureDir(PRINT_DIR);
+    await page.screenshot({
+      path: path.join(PRINT_DIR, '{{ module.code.upper() }}-index-新增.png'),
+      fullPage: false,
+    });
+
+    // 基本断言：页面未崩溃
+    await expect(page).not.toHaveTitle(/404|500/);
+  });
+
+  // GET 读操作: /{{ module.domain }}/{{ module.code }}/export
+  test('点击「导出」按钮', async ({ page }) => {
+
+    // GET 读操作：同步等待 API 响应，断言 status=200
+    const [apiRes] = await Promise.all([
+      page.waitForResponse(response => response.url().includes('/{{ module.domain }}/{{ module.code }}/export'), { timeout: 15000 }),
+      page.getByRole('button', { name: '导出' }).first().click(),
+    ]);
+
+    // 截图存档到本次运行目录
+    ensureDir(PRINT_DIR);
+    await page.screenshot({
+      path: path.join(PRINT_DIR, '{{ module.code.upper() }}-index-导出.png'),
+      fullPage: false,
+    });
+
+    // 断言 API 返回 200
+    expect(apiRes.status()).toBe(200);
+    await expect(page).not.toHaveTitle(/404|500/);
+  });
+
+  // 无直接 API 调用
+  test('点击「详情」按钮', async ({ page }) => {
+
+    await page.getByRole('button', { name: '详情' }).first().click();
+
+    // 截图存档到本次运行目录
+    ensureDir(PRINT_DIR);
+    await page.screenshot({
+      path: path.join(PRINT_DIR, '{{ module.code.upper() }}-index-详情.png'),
+      fullPage: false,
+    });
+
+    // 基本断言：页面未崩溃
+    await expect(page).not.toHaveTitle(/404|500/);
+  });
+
+  // 无直接 API 调用
+  test('点击「编辑」按钮', async ({ page }) => {
+
+    await page.getByRole('button', { name: '编辑' }).first().click();
+
+    // 截图存档到本次运行目录
+    ensureDir(PRINT_DIR);
+    await page.screenshot({
+      path: path.join(PRINT_DIR, '{{ module.code.upper() }}-index-编辑.png'),
+      fullPage: false,
+    });
+
+    // 基本断言：页面未崩溃
+    await expect(page).not.toHaveTitle(/404|500/);
+  });
+
+  // POST 写操作（删除）→ waitForResponse(remove)
+  test('点击「删除」按钮', async ({ page }) => {
+
+    // POST 删除：先注册监听，再依次 click 删除按钮 → ElMessageBox 确定
+    const apiResPromise = page.waitForResponse(
+      response => response.url().includes('/{{ module.domain }}/{{ module.code }}/remove'),
+      { timeout: 15000 }
+    );
+    await page.getByRole('button', { name: '删除' }).first().click();
+    // 等待 ElMessageBox 确认对话框出现并点确定
+    await page.locator('.el-message-box__btns .el-button--primary').first().click();
+    const apiRes = await apiResPromise;
+
+    // 截图存档到本次运行目录
+    ensureDir(PRINT_DIR);
+    await page.screenshot({
+      path: path.join(PRINT_DIR, '{{ module.code.upper() }}-index-删除.png'),
+      fullPage: false,
+    });
+
+    // 断言 API 返回 200
+    expect(apiRes.status()).toBe(200);
+    await expect(page).not.toHaveTitle(/404|500/);
+  });
+
+});
+
+// ================================================================
+// 来源文件: {{ module.code }}-add-or-edit.vue
+// 按钮数量: 1
+// ================================================================
+test.describe('{{ module.code.upper() }} | {{ module.code }}-add-or-edit', () => {
+
+  // beforeAll: 重置数据库，确保测试数据干净
+  test.beforeAll(() => { resetDb(); });
+
+  // beforeEach: 打开页面、关闭遮罩、API 日志监听
+  test.beforeEach(async ({ page }) => {
+    await commonBeforeEach(page);
+  });
+
+  // POST 写操作: /{{ module.domain }}/{{ module.code }}/add
+  test('点击「确认」按钮', async ({ page }) => {
+
+    // 此按钮在子视图（isType=2）内，先通过隐藏导航按钮切换视图
+    // dispatchEvent 绕过 display:none 可见性限制
+    await page.locator('[data-testid="nav-{{ module.code }}-add-or-edit"]').dispatchEvent('click');
+    await page.waitForLoadState('networkidle', { timeout: 10000 });
+    // 等待 loading 遮罩消失，防止遮挡按钮点击
+    await page.locator('.el-loading-mask').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+
+    // ---- 填充 G-form-add 表单字段（根据实际模块补充）----
+    // TODO: 根据 01-design/ui.md 补充必填字段的填充逻辑
+
+    // POST 写操作：同步等待 API 响应，断言 status=200
+    const [apiRes] = await Promise.all([
+      page.waitForResponse(response => response.url().includes('/{{ module.domain }}/{{ module.code }}/add'), { timeout: 15000 }),
+      page.getByRole('button', { name: '确认' }).first().click(),
+    ]);
+
+    // 截图存档到本次运行目录
+    ensureDir(PRINT_DIR);
+    await page.screenshot({
+      path: path.join(PRINT_DIR, '{{ module.code.upper() }}-{{ module.code }}-add-or-edit-确认.png'),
+      fullPage: false,
+    });
+
+    // 断言 API 返回 200
+    expect(apiRes.status()).toBe(200);
+    await expect(page).not.toHaveTitle(/404|500/);
+  });
+
+});

@@ -1,0 +1,16 @@
+# {{ module.name }} 独立运行配置（拷至 src/main/resources；凭据环境变量注入）
+server:
+  port: {{ module.port | default(20120) }}
+
+spring:
+  application:
+    name: libra-{{ module.code | replace('_', '-') }}-service
+  datasource:
+    dynamic:
+      primary: master
+      datasource:
+        master:
+          url: ${MYSQL_URL:jdbc:mysql://localhost:3306/{{ module.code | snake_to_camel }}}
+          username: ${MYSQL_USER:demo_user}
+          password: ${MYSQL_PWD:demo_password}
+          driver-class-name: com.mysql.cj.jdbc.Driver

@@ -1,0 +1,462 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}FileParam;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}Param;
+{% if module.has_batch_operations %}import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam;
+{% endif %}
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po.Biz{{ module.domain_pascal }}{{ module.code_pascal }};
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po.Biz{{ module.domain_pascal }}{{ module.code_pascal }}File;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}FileVO;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.mapper.{{ module.domain_pascal }}{{ module.code_pascal }}FileMapper;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.mapper.{{ module.domain_pascal }}{{ module.code_pascal }}Mapper;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.service.I{{ module.domain_pascal }}{{ module.code_pascal }}Service;
+import {{ project.group }}.layer.bis.utils.CurrentUserUtils;
+import {{ project.group }}.layer.sys.engine.config.MinioConfig;
+import {{ project.group }}.layer.task.dataobj.UserCommon;
+import io.minio.BucketExistsArgs;
+import io.minio.MakeBucketArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.SetBucketPolicyArgs;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.BeanUtils;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * {{ module.name }} 服务实现（含附件）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Slf4j
+@Service
+public class {{ module.domain_pascal }}{{ module.code_pascal }}ServiceImpl extends ServiceImpl<{{ module.domain_pascal }}{{ module.code_pascal }}Mapper, Biz{{ module.domain_pascal }}{{ module.code_pascal }}> implements I{{ module.domain_pascal }}{{ module.code_pascal }}Service {
+
+    @Resource
+    private {{ module.domain_pascal }}{{ module.code_pascal }}FileMapper {{ module.code }}FileMapper;
+
+    @Resource
+    private CurrentUserUtils currentUserUtils;
+
+    @Resource
+    private MinioClient minioClient;
+
+    @Resource
+    private MinioConfig minioConfig;
+
+    // ============================== 查询 ==============================
+
+    @Override
+    public IPage<{{ module.domain_pascal }}{{ module.code_pascal }}VO> selectPageVo({{ module.domain_pascal }}{{ module.code_pascal }}Param param) {
+        Page<{{ module.domain_pascal }}{{ module.code_pascal }}VO> page = new Page<>(param.getCurrent(), param.getSize());
+        return baseMapper.selectPageVo(page, param);
+    }
+
+    @Override
+    public {{ module.domain_pascal }}{{ module.code_pascal }}VO selectVoById(Long id) {
+        // 1. 查主表
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = this.getById(id);
+        if (po == null) {
+            return null;
+        }
+        {{ module.domain_pascal }}{{ module.code_pascal }}VO vo = new {{ module.domain_pascal }}{{ module.code_pascal }}VO();
+        BeanUtils.copyProperties(po, vo);
+
+        // 2. 查附件列表
+        vo.setFileList(fileList(id));
+        return vo;
+    }
+
+    // ============================== 增改删 ==============================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean add({{ module.domain_pascal }}{{ module.code_pascal }}Param param) {
+        UserCommon user = currentUserUtils.getUser();
+
+        // 1. 保存主表
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = new Biz{{ module.domain_pascal }}{{ module.code_pascal }}();
+        BeanUtils.copyProperties(param, po);
+        po.setCreateUser(user.getUserId());
+        po.setCreateDept(user.getDeptId() != null ? user.getDeptId() : 0L);
+        po.setCreateTime(LocalDateTime.now());
+        po.setUpdateUser(user.getUserId());
+        po.setUpdateTime(LocalDateTime.now());
+        po.setIsDeleted(0);
+        this.save(po);
+
+        // 2. 保存附件列表
+        if (!CollectionUtils.isEmpty(param.getFileList())) {
+            saveFileList(param.getFileList(), po.getId(), user);
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean update({{ module.domain_pascal }}{{ module.code_pascal }}Param param) {
+        UserCommon user = currentUserUtils.getUser();
+
+        // 1. 更新主表
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = new Biz{{ module.domain_pascal }}{{ module.code_pascal }}();
+        BeanUtils.copyProperties(param, po);
+        po.setUpdateUser(user.getUserId());
+        po.setUpdateTime(LocalDateTime.now());
+        this.updateById(po);
+
+        // 2. 先删后插附件（逻辑删除旧附件）
+        {{ module.code }}FileMapper.delete(
+                new LambdaQueryWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File>()
+                        .eq(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::get{{ module.code_pascal }}Id, param.getId())
+        );
+
+        // 3. 重新保存附件列表
+        if (!CollectionUtils.isEmpty(param.getFileList())) {
+            saveFileList(param.getFileList(), param.getId(), user);
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean logicalDeleteByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, ids)
+                .set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getIsDeleted, 1)
+                .set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        if (user != null) {
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+        }
+        return updateWrapper.update();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean physicalRemoveByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        // 1. 级联物理删除附件
+        List<Long> fileIds = {{ module.code }}FileMapper.selectList(
+                new LambdaQueryWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File>()
+                        .select(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::getId)
+                        .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::get{{ module.code_pascal }}Id, ids)
+        ).stream().map(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::getId).collect(java.util.stream.Collectors.toList());
+        if (!fileIds.isEmpty()) {
+            {{ module.code }}FileMapper.deleteBatchIds(fileIds);
+        }
+        // 2. 物理删除主表
+        baseMapper.physicalDeleteByIds(ids);
+        return true;
+    }
+
+    // ============================== 附件 ==============================
+
+    @Override
+    public {{ module.domain_pascal }}{{ module.code_pascal }}FileVO upload(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException("上传文件不能为空");
+        }
+        try {
+            String bucketName = minioConfig.getBucketName();
+            log.info("{{ module.code | upper }}_UPLOAD_START: file={} size={}", file.getOriginalFilename(), file.getSize());
+
+            // 1. 确保 Bucket 存在
+            if (!minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build())) {
+                minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+            }
+
+            // 2. 设置公开读策略（失败不阻断）
+            try {
+                String policy = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\"," +
+                        "\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"]," +
+                        "\"Resource\":[\"arn:aws:s3:::" + bucketName + "/*\"]}]}";
+                minioClient.setBucketPolicy(SetBucketPolicyArgs.builder().bucket(bucketName).config(policy).build());
+            } catch (Exception e) {
+                log.warn("{{ module.code | upper }}_UPLOAD: set bucket policy failed: {}", e.getMessage());
+            }
+
+            // 3. 上传文件（contentType null-safe）
+            String originalFilename = file.getOriginalFilename();
+            String objectName = "{{ module.group_code }}/{{ module.code }}/" + System.currentTimeMillis() + "_" + originalFilename;
+            String contentType = file.getContentType() != null ? file.getContentType() : "application/octet-stream";
+            minioClient.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .stream(file.getInputStream(), file.getSize(), -1)
+                            .contentType(contentType)
+                            .build()
+            );
+
+            // 4. 组装返回 VO
+            String url = minioConfig.getPreviewUrl() + "/" + bucketName + "/" + objectName;
+            {{ module.domain_pascal }}{{ module.code_pascal }}FileVO vo = new {{ module.domain_pascal }}{{ module.code_pascal }}FileVO();
+            vo.setFileUrl(url);
+            vo.setFileName(originalFilename);
+            log.info("{{ module.code | upper }}_UPLOAD_SUCCESS: url={}", url);
+            return vo;
+        } catch (Exception e) {
+            log.error("{{ module.code | upper }}_UPLOAD_FAILED: error={}", e.getMessage(), e);
+            throw new RuntimeException("文件上传失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public List<{{ module.domain_pascal }}{{ module.code_pascal }}FileVO> fileList(Long {{ module.code }}Id) {
+        List<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File> filePos = {{ module.code }}FileMapper.selectList(
+                new LambdaQueryWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File>()
+                        .eq(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::get{{ module.code_pascal }}Id, {{ module.code }}Id)
+        );
+        if (CollectionUtils.isEmpty(filePos)) {
+            return Collections.emptyList();
+        }
+        return filePos.stream().map(fp -> {
+            {{ module.domain_pascal }}{{ module.code_pascal }}FileVO fvo = new {{ module.domain_pascal }}{{ module.code_pascal }}FileVO();
+            BeanUtils.copyProperties(fp, fvo);
+            return fvo;
+        }).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean fileRemove(List<Long> fileIds) {
+        return {{ module.code }}FileMapper.deleteBatchIds(fileIds) > 0;
+    }
+
+    // ============================== 导出 ==============================
+
+    @Override
+    public void export({{ module.domain_pascal }}{{ module.code_pascal }}Param param, HttpServletResponse response) throws IOException {
+        // 查询全部数据（不分页）
+        Page<{{ module.domain_pascal }}{{ module.code_pascal }}VO> page = new Page<>(1, Long.MAX_VALUE);
+        List<{{ module.domain_pascal }}{{ module.code_pascal }}VO> dataList = baseMapper.selectPageVo(page, param).getRecords();
+
+        XSSFWorkbook workbook = new XSSFWorkbook();
+        try {
+            Sheet sheet = workbook.createSheet("{{ module.name }}");
+
+            // 创建表头
+            Row headerRow = sheet.createRow(0);
+{% for field in fields %}
+            headerRow.createCell({{ loop.index0 }}).setCellValue("{{ field.label }}");
+{% endfor %}
+            headerRow.createCell({{ fields | length }}).setCellValue("创建时间");
+
+            // 填充数据
+            int rowNum = 1;
+            for ({{ module.domain_pascal }}{{ module.code_pascal }}VO data : dataList) {
+                Row row = sheet.createRow(rowNum++);
+{% for field in fields %}
+                row.createCell({{ loop.index0 }}).setCellValue(formatValue(data.get{{ field.name_pascal }}()));
+{% endfor %}
+                row.createCell({{ fields | length }}).setCellValue(formatDateTime(data.getCreateTime()));
+            }
+
+            // 设置响应头
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setCharacterEncoding("utf-8");
+            String fileName = URLEncoder.encode("{{ module.name }}" + System.currentTimeMillis(), "UTF-8").replaceAll("\\+", "%20");
+            response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+
+            workbook.write(response.getOutputStream());
+        } finally {
+            workbook.close();
+        }
+    }
+
+    // ============================== 私有方法 ==============================
+
+    private void saveFileList(List<{{ module.domain_pascal }}{{ module.code_pascal }}FileParam> fileParams, Long bizId, UserCommon user) {
+        List<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File> filePoList = new ArrayList<>();
+        for ({{ module.domain_pascal }}{{ module.code_pascal }}FileParam fp : fileParams) {
+            if (!StringUtils.hasText(fp.getFileUrl())) {
+                continue;
+            }
+            Biz{{ module.domain_pascal }}{{ module.code_pascal }}File filePo = new Biz{{ module.domain_pascal }}{{ module.code_pascal }}File();
+            BeanUtils.copyProperties(fp, filePo);
+            filePo.set{{ module.code_pascal }}Id(bizId);
+            filePo.setCreateUser(user.getUserId());
+            filePo.setCreateDept(user.getDeptId() != null ? user.getDeptId() : 0L);
+            filePo.setCreateTime(LocalDateTime.now());
+            filePo.setIsDeleted(0);
+            filePoList.add(filePo);
+        }
+        for (Biz{{ module.domain_pascal }}{{ module.code_pascal }}File fp : filePoList) {
+            {{ module.code }}FileMapper.insert(fp);
+        }
+    }
+
+    private String formatValue(Object value) {
+        if (value == null) return "";
+        return String.valueOf(value);
+    }
+
+    private String formatDateTime(LocalDateTime time) {
+        if (time == null) return "";
+        return time.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+{% if module.has_status_toggles %}
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean toggleStatus(Long id, String field, Integer value) {
+        Biz{{ module.domain_pascal }}{{ module.code_pascal }} po = this.getById(id);
+        if (po == null) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+
+        // 根据字段名设置值
+{% for toggle in module.status_toggles %}
+        if ("{{ toggle.field }}".equals(field)) {
+            po.set{{ toggle.field_pascal }}(value);
+        }
+{% endfor %}
+
+        if (user != null) {
+            po.setUpdateUser(user.getUserId());
+        }
+        po.setUpdateTime(LocalDateTime.now());
+        return this.updateById(po);
+    }
+{% endif %}
+{% if module.has_batch_operations %}
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchDelete(List<Long> ids) {
+        // 直接调用逻辑删除
+        return logicalDeleteByIds(ids);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchUpdate({{ module.domain_pascal }}{{ module.code_pascal }}BatchUpdateParam param) {
+        if (param.getIds() == null || param.getIds().isEmpty()) {
+            return false;
+        }
+        // 兼容旧接口：data 为空时回退到 field/value 单字段模式
+        if (param.getData() == null || param.getData().isEmpty()) {
+            return batchUpdate(param.getIds(), param.getField(), param.getValue());
+        }
+        // 多字段批量更新
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, param.getIds());
+        for (Map.Entry<String, Object> entry : param.getData().entrySet()) {
+            String fieldName = entry.getKey();
+            Object val = entry.getValue();
+            if (val == null) continue;
+{% for f in module.batch_operations["update"]["fields"] %}
+            if ("{{ f.name }}".equals(fieldName)) {
+{% if f.java_type == 'Integer' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof Integer ? (Integer) val : Integer.parseInt(val.toString()));
+{% elif f.java_type == 'Long' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof Long ? (Long) val : Long.parseLong(val.toString()));
+{% elif f.java_type == 'java.math.BigDecimal' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof java.math.BigDecimal ? (java.math.BigDecimal) val : new java.math.BigDecimal(val.toString()));
+{% elif f.java_type == 'java.time.LocalDate' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof java.time.LocalDate ? (java.time.LocalDate) val : java.time.LocalDate.parse(val.toString()));
+{% elif f.java_type == 'java.time.LocalDateTime' %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val instanceof java.time.LocalDateTime ? (java.time.LocalDateTime) val : java.time.LocalDateTime.parse(val.toString()));
+{% else %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.name_pascal }}, val.toString());
+{% endif %}
+            }
+{% endfor %}
+        }
+        if (user != null) {
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+        }
+        updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        return updateWrapper.update();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchUpdate(List<Long> ids, String field, Object value) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        UserCommon user = currentUserUtils.getUser();
+        LocalDateTime now = LocalDateTime.now();
+
+        LambdaUpdateChainWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> updateWrapper = this.lambdaUpdate()
+                .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getId, ids);
+            // 根据字段名设置值（白名单校验已在Controller层完成）
+{% for f in module.batch_operations["update"]["fields"] %}
+            if ("{{ f.field }}".equals(field)) {
+{% if f.java_type is defined %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.field_pascal }}, ({% if f.java_type == 'Integer' %}Integer{% elif f.java_type == 'Long' %}Long{% elif f.java_type == 'String' %}String{% elif f.java_type == 'LocalDate' %}LocalDate{% else %}Object{% endif %}) value);
+{% else %}
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::get{{ f.field_pascal }}, (Integer) value);
+{% endif %}
+            }
+{% endfor %}
+            if (user != null) {
+                updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateUser, user.getUserId());
+            }
+            updateWrapper.set(Biz{{ module.domain_pascal }}{{ module.code_pascal }}::getUpdateTime, now);
+        return updateWrapper.update();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchToggle(List<Long> ids, String field, Integer value) {
+        return this.batchUpdate(ids, field, value);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Boolean batchPhysicalDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return false;
+        }
+        // 1. 级联物理删除附件
+        List<Long> batchFileIds = {{ module.code }}FileMapper.selectList(
+                new LambdaQueryWrapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File>()
+                        .select(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::getId)
+                        .in(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::get{{ module.code_pascal }}Id, ids)
+        ).stream().map(Biz{{ module.domain_pascal }}{{ module.code_pascal }}File::getId).collect(java.util.stream.Collectors.toList());
+        if (!batchFileIds.isEmpty()) {
+            {{ module.code }}FileMapper.deleteBatchIds(batchFileIds);
+        }
+        // 2. 物理删除主表
+        baseMapper.physicalDeleteByIds(ids);
+        return true;
+    }
+{% endif %}
+}

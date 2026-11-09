@@ -1,0 +1,439 @@
+{
+  "last_updated": "2026-11-07T09:30:54.027069",
+  "total_configs": 24,
+  "domains": {
+    "test": {
+      "domain": "test",
+      "count": 24,
+      "modules": [
+        {
+          "code": "t1000",
+          "name": "单表无附件",
+          "mode": "single"
+        },
+        {
+          "code": "t1001",
+          "name": "单表有附件",
+          "mode": "single-with-file"
+        },
+        {
+          "code": "t2000",
+          "name": "主子表无附件",
+          "mode": "master-detail"
+        },
+        {
+          "code": "t2001",
+          "name": "主子表全无附件",
+          "mode": "master-detail-with-file"
+        },
+        {
+          "code": "t2002",
+          "name": "主子表主表附件",
+          "mode": "master-detail-with-file"
+        },
+        {
+          "code": "t2003",
+          "name": "主子表明细附件",
+          "mode": "master-detail-with-file"
+        },
+        {
+          "code": "t2004",
+          "name": "主子表全部附件",
+          "mode": "master-detail-with-file"
+        },
+        {
+          "code": "t3000",
+          "name": "多明细无附件",
+          "mode": "master-detail-modules"
+        },
+        {
+          "code": "t3001",
+          "name": "多明细全无附件",
+          "mode": "master-detail-modules-with-file"
+        },
+        {
+          "code": "t3002",
+          "name": "多明细主表附件",
+          "mode": "master-detail-modules-with-file"
+        },
+        {
+          "code": "t3003",
+          "name": "多明细明细附件",
+          "mode": "master-detail-modules-with-file"
+        },
+        {
+          "code": "t3004",
+          "name": "多明细全部附件",
+          "mode": "master-detail-modules-with-file"
+        },
+        {
+          "code": "t4000",
+          "name": "Tab明细无附件",
+          "mode": "master-details-tabs"
+        },
+        {
+          "code": "t4001",
+          "name": "Tab明细全无附件",
+          "mode": "master-details-tabs-with-file"
+        },
+        {
+          "code": "t4002",
+          "name": "Tab明细主表附件",
+          "mode": "master-details-tabs-with-file"
+        },
+        {
+          "code": "t4003",
+          "name": "Tab明细明细附件",
+          "mode": "master-details-tabs-with-file"
+        },
+        {
+          "code": "t4004",
+          "name": "Tab明细全部附件",
+          "mode": "master-details-tabs-with-file"
+        },
+        {
+          "code": "t5000",
+          "name": "Tab弹窗无附件",
+          "mode": "master-details-tabs-dialog"
+        },
+        {
+          "code": "t5001",
+          "name": "Tab弹窗全无附件",
+          "mode": "master-details-tabs-dialog-with-file"
+        },
+        {
+          "code": "t5002",
+          "name": "Tab弹窗主表附件",
+          "mode": "master-details-tabs-dialog-with-file"
+        },
+        {
+          "code": "t5003",
+          "name": "Tab弹窗明细附件",
+          "mode": "master-details-tabs-dialog-with-file"
+        },
+        {
+          "code": "t5004",
+          "name": "Tab弹窗全部附件",
+          "mode": "master-details-tabs-dialog-with-file"
+        },
+        {
+          "code": "t6000",
+          "name": "多平级无附件",
+          "mode": "multi-table"
+        },
+        {
+          "code": "t6001",
+          "name": "多平级有附件",
+          "mode": "multi-table-with-file"
+        }
+      ]
+    }
+  },
+  "configs": [
+    {
+      "file": "test/t1000.yml",
+      "mode": "single",
+      "domain": "test",
+      "code": "t1000",
+      "name": "单表无附件",
+      "description": "T01 测试模块 - 单表无附件",
+      "field_count": 7,
+      "last_modified": "2026-11-07T09:05:18.487926"
+    },
+    {
+      "file": "test/t1001.yml",
+      "mode": "single-with-file",
+      "domain": "test",
+      "code": "t1001",
+      "name": "单表有附件",
+      "description": "T02 测试模块 - 单表有附件",
+      "field_count": 7,
+      "last_modified": "2026-11-07T09:05:18.487556"
+    },
+    {
+      "file": "test/t2000.yml",
+      "mode": "master-detail",
+      "domain": "test",
+      "code": "t2000",
+      "name": "主子表无附件",
+      "description": "T03 测试模块 - 主子表无附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.485197",
+      "has_master": true,
+      "has_detail": true,
+      "master_code": "t2000proj",
+      "detail_code": "t2000projitem"
+    },
+    {
+      "file": "test/t2001.yml",
+      "mode": "master-detail-with-file",
+      "domain": "test",
+      "code": "t2001",
+      "name": "主子表全无附件",
+      "description": "T04-0 测试模块 - 主子表全无附件（边界场景）",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.485334",
+      "has_master": true,
+      "has_detail": true,
+      "master_code": "t2001proj",
+      "detail_code": "t2001projitem"
+    },
+    {
+      "file": "test/t2002.yml",
+      "mode": "master-detail-with-file",
+      "domain": "test",
+      "code": "t2002",
+      "name": "主子表主表附件",
+      "description": "T04-1 测试模块 - 主子表仅主表有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.485059",
+      "has_master": true,
+      "has_detail": true,
+      "master_code": "t2002proj",
+      "detail_code": "t2002projitem"
+    },
+    {
+      "file": "test/t2003.yml",
+      "mode": "master-detail-with-file",
+      "domain": "test",
+      "code": "t2003",
+      "name": "主子表明细附件",
+      "description": "T04-2 测试模块 - 主子表仅明细有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.484926",
+      "has_master": true,
+      "has_detail": true,
+      "master_code": "t2003proj",
+      "detail_code": "t2003projitem"
+    },
+    {
+      "file": "test/t2004.yml",
+      "mode": "master-detail-with-file",
+      "domain": "test",
+      "code": "t2004",
+      "name": "主子表全部附件",
+      "description": "T04-3 测试模块 - 主子表全部有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.484792",
+      "has_master": true,
+      "has_detail": true,
+      "master_code": "t2004proj",
+      "detail_code": "t2004projitem"
+    },
+    {
+      "file": "test/t3000.yml",
+      "mode": "master-detail-modules",
+      "domain": "test",
+      "code": "t3000",
+      "name": "多明细无附件",
+      "description": "T05 测试模块 - 多明细无附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.489009",
+      "has_master": true,
+      "detail_module_count": 2,
+      "detail_module_codes": [
+        "t3000task",
+        "t3000record"
+      ],
+      "master_code": "t3000proj"
+    },
+    {
+      "file": "test/t3001.yml",
+      "mode": "master-detail-modules-with-file",
+      "domain": "test",
+      "code": "t3001",
+      "name": "多明细全无附件",
+      "description": "T06-0 测试模块 - 多明细全无附件（边界场景）",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.488787",
+      "has_master": true,
+      "detail_module_count": 2,
+      "detail_module_codes": [
+        "t3001task",
+        "t3001record"
+      ],
+      "master_code": "t3001proj"
+    },
+    {
+      "file": "test/t3002.yml",
+      "mode": "master-detail-modules-with-file",
+      "domain": "test",
+      "code": "t3002",
+      "name": "多明细主表附件",
+      "description": "T06-1 测试模块 - 多明细仅主表有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.489193",
+      "has_master": true,
+      "detail_module_count": 2,
+      "detail_module_codes": [
+        "t3002task",
+        "t3002record"
+      ],
+      "master_code": "t3002proj"
+    },
+    {
+      "file": "test/t3003.yml",
+      "mode": "master-detail-modules-with-file",
+      "domain": "test",
+      "code": "t3003",
+      "name": "多明细明细附件",
+      "description": "T06-2 测试模块 - 多明细仅明细有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.489378",
+      "has_master": true,
+      "detail_module_count": 2,
+      "detail_module_codes": [
+        "t3003task",
+        "t3003record"
+      ],
+      "master_code": "t3003proj"
+    },
+    {
+      "file": "test/t3004.yml",
+      "mode": "master-detail-modules-with-file",
+      "domain": "test",
+      "code": "t3004",
+      "name": "多明细全部附件",
+      "description": "T06-3 测试模块 - 多明细全部有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.487787",
+      "has_master": true,
+      "detail_module_count": 2,
+      "detail_module_codes": [
+        "t3004task",
+        "t3004record"
+      ],
+      "master_code": "t3004proj"
+    },
+    {
+      "file": "test/t4000.yml",
+      "mode": "master-details-tabs",
+      "domain": "test",
+      "code": "t4000",
+      "name": "Tab明细无附件",
+      "description": "T07 测试模块 - Tab明细无附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.484245"
+    },
+    {
+      "file": "test/t4001.yml",
+      "mode": "master-details-tabs-with-file",
+      "domain": "test",
+      "code": "t4001",
+      "name": "Tab明细全无附件",
+      "description": "T08-0 测试模块 - Tab明细全无附件（边界场景）",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.484059"
+    },
+    {
+      "file": "test/t4002.yml",
+      "mode": "master-details-tabs-with-file",
+      "domain": "test",
+      "code": "t4002",
+      "name": "Tab明细主表附件",
+      "description": "T08-1 测试模块 - Tab明细仅主表有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.484438"
+    },
+    {
+      "file": "test/t4003.yml",
+      "mode": "master-details-tabs-with-file",
+      "domain": "test",
+      "code": "t4003",
+      "name": "Tab明细明细附件",
+      "description": "T08-2 测试模块 - Tab明细仅明细有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.484626"
+    },
+    {
+      "file": "test/t4004.yml",
+      "mode": "master-details-tabs-with-file",
+      "domain": "test",
+      "code": "t4004",
+      "name": "Tab明细全部附件",
+      "description": "T08-3 测试模块 - Tab明细全部有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.483705"
+    },
+    {
+      "file": "test/t5000.yml",
+      "mode": "master-details-tabs-dialog",
+      "domain": "test",
+      "code": "t5000",
+      "name": "Tab弹窗无附件",
+      "description": "T09 测试模块 - Tab弹窗无附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.486030"
+    },
+    {
+      "file": "test/t5001.yml",
+      "mode": "master-details-tabs-dialog-with-file",
+      "domain": "test",
+      "code": "t5001",
+      "name": "Tab弹窗全无附件",
+      "description": "T10-0 测试模块 - Tab弹窗全无附件（边界场景）",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.486178"
+    },
+    {
+      "file": "test/t5002.yml",
+      "mode": "master-details-tabs-dialog-with-file",
+      "domain": "test",
+      "code": "t5002",
+      "name": "Tab弹窗主表附件",
+      "description": "T10-1 测试模块 - Tab弹窗仅主表有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.485892"
+    },
+    {
+      "file": "test/t5003.yml",
+      "mode": "master-details-tabs-dialog-with-file",
+      "domain": "test",
+      "code": "t5003",
+      "name": "Tab弹窗明细附件",
+      "description": "T10-2 测试模块 - Tab弹窗仅明细有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.485721"
+    },
+    {
+      "file": "test/t5004.yml",
+      "mode": "master-details-tabs-dialog-with-file",
+      "domain": "test",
+      "code": "t5004",
+      "name": "Tab弹窗全部附件",
+      "description": "T10-3 测试模块 - Tab弹窗全部有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.485527"
+    },
+    {
+      "file": "test/t6000.yml",
+      "mode": "multi-table",
+      "domain": "test",
+      "code": "t6000",
+      "name": "多平级无附件",
+      "description": "t11 测试模块 - 多平级无附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.483877",
+      "sub_table_count": 2,
+      "sub_table_codes": [
+        "t6000book",
+        "t6000author"
+      ]
+    },
+    {
+      "file": "test/t6001.yml",
+      "mode": "multi-table-with-file",
+      "domain": "test",
+      "code": "t6001",
+      "name": "多平级有附件",
+      "description": "t12 测试模块 - 多平级有附件",
+      "field_count": 0,
+      "last_modified": "2026-11-07T09:05:18.483496",
+      "sub_table_count": 2,
+      "sub_table_codes": [
+        "t6001book",
+        "t6001author"
+      ]
+    }
+  ]
+}

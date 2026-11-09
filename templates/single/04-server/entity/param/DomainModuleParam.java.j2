@@ -1,0 +1,71 @@
+package {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.param;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+import org.springframework.format.annotation.DateTimeFormat;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
+{% if has_date_field %}import java.time.LocalDate;
+{% endif %}{% if has_datetime_field %}import java.time.LocalDateTime;
+{% endif %}
+/**
+ * {{ module.name }} 查询入参
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@JsonIgnoreProperties(ignoreUnknown = true)
+@Schema(description = "{{ module.name }}查询入参")
+public class {{ module.domain_pascal }}{{ module.code_pascal }}Param {
+
+    @Schema(description = "当前页")
+    private Long current = 1L;
+
+    @Schema(description = "每页大小")
+    private Long size = 10L;
+
+    @Schema(description = "主键ID（修改时必填）")
+    private Long id;
+
+{% for field in fields %}{% if not field.generated %}
+    @Schema(description = "{{ field.label }}"{% if field.required %}, required = true{% endif %})
+{% if field.required %}{% if field.java_type == 'String' %}    @NotBlank(message = "{{ field.label }}不能为空")
+{% else %}    @NotNull(message = "{{ field.label }}不能为空")
+{% endif %}{% endif %}{% if field.type == 'date' %}    @DateTimeFormat(pattern = "yyyy-MM-dd")
+    @JsonFormat(pattern = "yyyy-MM-dd")
+{% elif field.type == 'datetime' %}    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+{% endif %}    private {{ field.java_type }} {{ field.name }};
+
+{% endif %}{% endfor %}
+    // 日期范围查询（手动拆分）
+{% for field in fields %}{% if field.type == 'date' %}
+    @Schema(description = "{{ field.label }}开始（yyyy-MM-dd）")
+    @DateTimeFormat(pattern = "yyyy-MM-dd")
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private {{ field.java_type }} {{ field.name }}Begin;
+
+    @Schema(description = "{{ field.label }}结束（yyyy-MM-dd）")
+    @DateTimeFormat(pattern = "yyyy-MM-dd")
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private {{ field.java_type }} {{ field.name }}End;
+
+{% elif field.type == 'datetime' %}
+    @Schema(description = "{{ field.label }}开始（yyyy-MM-dd HH:mm:ss）")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private {{ field.java_type }} {{ field.name }}Begin;
+
+    @Schema(description = "{{ field.label }}结束（yyyy-MM-dd HH:mm:ss）")
+    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private {{ field.java_type }} {{ field.name }}End;
+
+{% endif %}{% endfor %}
+}

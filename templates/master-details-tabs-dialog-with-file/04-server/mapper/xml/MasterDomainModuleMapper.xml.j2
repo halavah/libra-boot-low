@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="{{ project.group }}.layer.bis.{{ module.package_path }}.mapper.{{ module.domain_pascal }}{{ module.code_pascal }}Mapper">
+
+    <sql id="Base_Column_List">
+        t.id,
+{% for field in fields %}
+        t.{{ field.column_name }},
+{% endfor %}
+        t.create_dept,
+        t.create_time,
+        t.create_user,
+        t.update_time,
+        t.update_user,
+        t.is_deleted
+    </sql>
+
+    <sql id="Base_Where_Clause">
+        <where>
+            t.is_deleted = 0
+{% for field in fields %}
+{% if field.type != 'date' and field.type != 'datetime' %}
+            <if test="param.{{ field.name }} != null{% if field.java_type == 'String' %} and param.{{ field.name }} != ''{% endif %}">
+{% if field.type == 'input' or field.type == 'textarea' %}
+                AND t.{{ field.column_name }} LIKE CONCAT('%', #{param.{{ field.name }}}, '%')
+{% elif field.type == 'select' or field.type == 'number' or field.type == 'date-year' or field.type == 'decimal' %}
+                AND t.{{ field.column_name }} = #{param.{{ field.name }}}
+{% endif %}
+            </if>
+{% endif %}
+{% endfor %}
+{% for field in fields %}
+{% if field.type == 'date' or field.type == 'datetime' %}
+            <if test="param.{{ field.name }}Begin != null">
+                AND t.{{ field.column_name }} &gt;= #{param.{{ field.name }}Begin}
+            </if>
+            <if test="param.{{ field.name }}End != null">
+                AND t.{{ field.column_name }} &lt; DATE_ADD(#{param.{{ field.name }}End}, INTERVAL 1 DAY)
+            </if>
+{% endif %}
+{% endfor %}
+        </where>
+    </sql>
+
+    <select id="selectPageVo" resultType="{{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM {{ module.table_name }} t
+        <include refid="Base_Where_Clause"/>
+        ORDER BY t.create_time DESC
+    </select>
+
+    <select id="selectVoById" resultType="{{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM {{ module.table_name }} t
+        WHERE t.id = #{id}
+          AND t.is_deleted = 0
+    </select>
+
+{% if has_master_file %}
+    <!-- 主表附件查询（可选能力：仅当配置了 master.file_types 时启用） -->
+    <select id="selectFileVoListByMasterId" resultType="{{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}FileVO">
+        SELECT
+            f.id,
+            f.{{ module.code_camel }}_id AS {{ module.code_camel }}Id,
+            f.file_type AS fileType,
+            f.file_url AS fileUrl,
+            f.file_name AS fileName
+        FROM {{ module.table_name }}_file f
+        WHERE f.{{ module.code_camel }}_id = #{id}
+          AND f.is_deleted = 0
+        ORDER BY f.create_time DESC
+    </select>
+{% endif %}
+
+    <delete id="physicalDeleteByIds">
+        DELETE FROM {{ module.table_name }} WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>

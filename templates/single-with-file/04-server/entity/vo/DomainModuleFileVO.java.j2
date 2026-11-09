@@ -1,0 +1,35 @@
+package {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.vo;
+
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+/**
+ * {{ module.name }} 附件视图对象
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+@Schema(description = "{{ module.name }}附件VO")
+public class {{ module.domain_pascal }}{{ module.code_pascal }}FileVO {
+
+    @Schema(description = "附件ID")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long id;
+
+    @Schema(description = "关联{{ module.name }}主表ID")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long {{ module.code }}Id;
+
+    @Schema(description = "附件类型：{% for ft in module.file_types %}{{ ft.code }}={{ ft.label }}{% if not loop.last %}，{% endif %}{% endfor %}")
+    private String fileType;
+
+    @Schema(description = "MinIO文件绝对地址")
+    private String fileUrl;
+
+    @Schema(description = "原始文件名")
+    private String fileName;
+}

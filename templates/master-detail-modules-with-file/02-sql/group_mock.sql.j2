@@ -1,0 +1,98 @@
+-- =====================================================
+-- {{ group_name }} 模块测试数据脚本
+-- 主表10条 + 各明细表25条（共 {{ detail_modules | length }} 个明细表）
+-- =====================================================
+SET NAMES utf8mb4;
+
+{% for dm in detail_modules | reverse %}
+{% if dm.has_file %}
+TRUNCATE TABLE `{{ dm.table_name }}_file`;
+{% endif %}
+TRUNCATE TABLE `{{ dm.table_name }}`;
+{% endfor %}
+{% if has_master_file %}
+TRUNCATE TABLE `{{ master_module.table_name }}_file`;
+{% endif %}
+TRUNCATE TABLE `{{ master_module.table_name }}`;
+
+-- ----------------------------
+-- 1. 插入主表测试数据（{{ master_module.name }}，10条）
+-- ----------------------------
+INSERT INTO `{{ master_module.table_name }}` (
+  `id`{% for field in master_fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 11) %}
+{% set row_idx = loop.index0 %}
+{% set yr = 2023 + row_idx // 4 %}
+{% set mo = row_idx % 4 + 1 %}
+({{ 1000000 + i }}, {% for field in master_fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+{% if has_master_file %}
+{% set master_ft_count = master_module.file_types | length %}
+{% if master_ft_count > 0 %}
+-- ----------------------------
+-- 1b. 插入主表附件从表测试数据（{{ master_module.name }}附件，6条，挂在前3条主记录下）
+-- ----------------------------
+{% set mft0 = master_module.file_types[0] %}
+{% set mft1 = master_module.file_types[1 % master_ft_count] if master_ft_count > 1 else master_module.file_types[0] %}
+INSERT INTO `{{ master_module.table_name }}_file` (
+  `id`, `{{ master_module.code }}_id`, `file_type`, `file_url`, `file_name`,
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+(100000001, 1000001, '{{ mft0.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/f1_1.pdf', '{{ master_module.name }}1_{{ mft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(100000002, 1000001, '{{ mft1.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/f1_2.jpg', '{{ master_module.name }}1_{{ mft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(100000003, 1000002, '{{ mft0.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/f2_1.pdf', '{{ master_module.name }}2_{{ mft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(100000004, 1000002, '{{ mft1.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/f2_2.jpg', '{{ master_module.name }}2_{{ mft1.label }}.jpg', 0, NOW(), 1001, 2001),
+(100000005, 1000003, '{{ mft0.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/f3_1.pdf', '{{ master_module.name }}3_{{ mft0.label }}.pdf', 0, NOW(), 1001, 2001),
+(100000006, 1000003, '{{ mft1.code }}', 'http://localhost:9000/task/{{ master_module.domain }}/{{ master_module.code }}/f3_2.jpg', '{{ master_module.name }}3_{{ mft1.label }}.jpg', 0, NOW(), 1001, 2001);
+
+{% endif %}
+{% endif %}
+
+{% for dm in detail_modules %}
+{% set dm_loop_index0 = loop.index0 %}
+-- ----------------------------
+-- {{ loop.index + 1 }}. 插入明细表{{ loop.index }}测试数据（{{ dm.name }}，25条）
+-- ----------------------------
+INSERT INTO `{{ dm.table_name }}` (
+  `id`, `{{ dm.master_fk_column }}`{% for field in dm.fields %}, `{{ field.column_name }}`{% endfor %},
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+{% for i in range(1, 26) %}
+{% set row_idx = loop.index0 %}
+{% set master_idx = row_idx % 10 + 1 %}
+{% set yr = 2023 + row_idx // 9 %}
+{% set mo = row_idx % 9 + 1 %}
+{% set dm_id_base = (dm_loop_index0 + 2) * 1000000 %}
+({{ dm_id_base + i }}, {{ 1000000 + master_idx }}, {% for field in dm.fields %}{% if field.type == 'input' or field.type == 'textarea' %}'{{ field.label }}{{ i }}'{% elif field.type == 'select' %}{{ field.options[row_idx % (field.options | length)].value }}{% elif field.type == 'date-year' %}{{ yr }}{% elif field.type == 'date-month' %}'{{ yr }}-0{{ mo }}'{% elif field.type == 'number' %}{{ i * 10 }}{% elif field.type == 'decimal' %}{{ i }}.00{% elif field.type == 'date' %}'{{ yr }}-0{{ mo }}-01'{% elif field.type == 'datetime' %}'{{ yr }}-0{{ mo }}-01 10:00:00'{% else %}NULL{% endif %}, {% endfor %}0, NOW(), 1001, 2001){% if not loop.last %},{% else %};{% endif %}
+
+{% endfor %}
+
+{% if dm.has_file %}
+{% set dm_ft_count = dm.file_types | length %}
+{% if dm_ft_count > 0 %}
+{% set dft0 = dm.file_types[0] %}
+{% set dft1 = dm.file_types[1 % dm_ft_count] if dm_ft_count > 1 else dm.file_types[0] %}
+{% set file_id_base = (dm_loop_index0 + 3) * 100000000 %}
+-- ----------------------------
+-- {{ dm_loop_index0 + 2 }}b. 插入明细{{ dm_loop_index0 + 1 }}附件从表测试数据（{{ dm.name }}附件，6条）
+-- ----------------------------
+INSERT INTO `{{ dm.table_name }}_file` (
+  `id`, `{{ dm.code }}_id`, `file_type`, `file_url`, `file_name`,
+  `is_deleted`, `create_time`, `create_user`, `create_dept`
+) VALUES
+({{ file_id_base + 1 }}, {{ (dm_loop_index0 + 2) * 1000000 + 1 }}, '{{ dft0.code }}', 'http://localhost:9000/task/{{ dm.domain }}/{{ dm.code }}/f1_1.pdf', '{{ dm.name }}1_{{ dft0.label }}.pdf', 0, NOW(), 1001, 2001),
+({{ file_id_base + 2 }}, {{ (dm_loop_index0 + 2) * 1000000 + 1 }}, '{{ dft1.code }}', 'http://localhost:9000/task/{{ dm.domain }}/{{ dm.code }}/f1_2.jpg', '{{ dm.name }}1_{{ dft1.label }}.jpg', 0, NOW(), 1001, 2001),
+({{ file_id_base + 3 }}, {{ (dm_loop_index0 + 2) * 1000000 + 2 }}, '{{ dft0.code }}', 'http://localhost:9000/task/{{ dm.domain }}/{{ dm.code }}/f2_1.pdf', '{{ dm.name }}2_{{ dft0.label }}.pdf', 0, NOW(), 1001, 2001),
+({{ file_id_base + 4 }}, {{ (dm_loop_index0 + 2) * 1000000 + 2 }}, '{{ dft1.code }}', 'http://localhost:9000/task/{{ dm.domain }}/{{ dm.code }}/f2_2.jpg', '{{ dm.name }}2_{{ dft1.label }}.jpg', 0, NOW(), 1001, 2001),
+({{ file_id_base + 5 }}, {{ (dm_loop_index0 + 2) * 1000000 + 3 }}, '{{ dft0.code }}', 'http://localhost:9000/task/{{ dm.domain }}/{{ dm.code }}/f3_1.pdf', '{{ dm.name }}3_{{ dft0.label }}.pdf', 0, NOW(), 1001, 2001),
+({{ file_id_base + 6 }}, {{ (dm_loop_index0 + 2) * 1000000 + 3 }}, '{{ dft1.code }}', 'http://localhost:9000/task/{{ dm.domain }}/{{ dm.code }}/f3_2.jpg', '{{ dm.name }}3_{{ dft1.label }}.jpg', 0, NOW(), 1001, 2001);
+
+{% endif %}
+{% endif %}
+
+{% endfor %}
+SELECT '✅ {{ group_name }} 测试数据导入完成（主表10条 + 各明细表25条）' AS status;

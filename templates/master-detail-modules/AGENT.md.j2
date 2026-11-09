@@ -1,0 +1,189 @@
+# AGENT.md - {{ module.code.upper() }} 模块 Agent 快速启动指南
+
+> **模块类型**: 独立 Agent
+> **最后更新**: {{ generated_date }}
+> **维护者**: AI Assistant
+
+---
+
+## 🎯 模块身份
+
+| 项目 | 内容 |
+|------|------|
+| **模块名称** | {{ module.code.upper() }} ({{ module.name }}) |
+| **业务类型** | {{ module.domain }} |
+| **开发状态** | ✅ 后端完成 / 🚧 前端待配置 / 🎭 页面测试就绪 |
+| **后端包路径** | `{{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}` |
+| **前端路径** | `src/views/{{ module.domain }}/{{ module.code }}` |
+
+---
+
+## 🔔 最新变更 (Latest Updates)
+
+### {{ generated_date }}
+- ✅ **页面测试基础设施就绪**: 新增 `04-page-scripts/` 工具集（`run_page_test.py` / `run_page_test.sh` / `playwright.config.js` / `auth.setup.js`）。
+- ✅ **测试用例已生成**: `04-page-scripts/index.test.js` 自动解析 Vue 源码，覆盖 5 个按钮（index.vue×5）。
+- ✅ **统一时间戳输出**: 测试输出写入 `05-out/{RUN_ID}/`，含截图（根目录）、`html-report/`（报告+汇总）、`error-results/`（失败产物）。
+- ✅ **HTML 亮色主题**: 测试后自动调用 `run_page_test.py --patch-html --theme light` 修复报告主题。
+
+### 待办事项 (TODO)
+- [ ] 配置前端路由 (`router/index.js`)
+- [ ] 配置菜单权限 (系统菜单表)
+- [ ] 部署到测试环境
+- [ ] 编写用户操作手册
+
+---
+
+## 📁 目录结构与关联
+
+```
+{{ module.code }}/
+├── AGENT.md                    # 【本文件】模块 Agent 快速启动
+│
+├── 01-design/                  # 📐 设计文档
+│   ├── database.md            # 数据库设计（表结构、字段说明）
+│   ├── api.md                 # API 设计（接口定义、参数说明）
+│   └── ui.md                  # UI 设计（页面配置、组件规范）
+│
+├── 02-sql/                     # 🗄️ SQL 脚本
+│   ├── {{ module.code }}_exec.sql          # 建表脚本（DDL）
+│   ├── {{ module.code }}_mock.sql          # 测试数据（DML）
+│   └── {{ module.code }}_enum.md           # 枚举定义说明
+│
+├── 02-sql-scripts/             # 🛠️ SQL 执行工具
+│   ├── run_mock.py            # 通用 SQL 执行脚本（自动检测模块）
+│   ├── run_mock.ps1/sh        # PowerShell/Shell 调用包装器
+│   └── config.yml             # 数据库配置
+│
+├── 03-http/                    # 🔧 HTTP 测试文件
+│   └── {{ module.code }}.http             # 接口测试（5个请求）
+│
+├── 03-http-scripts/            # 🧪 HTTP 测试工具
+│   ├── test_mock.py           # 批量测试接口（自动检测模块）
+│   ├── test_mock.ps1/sh       # PowerShell/Shell 调用包装器
+│   ├── gen_mock.py            # 生成 Postman 集合
+│   └── gen_mock.ps1/sh        # PowerShell/Shell 调用包装器
+│
+├── 04-page-scripts/            # ⚙️  页面测试生成与执行工具
+│   ├── run_page_test.py       # 解析 Vue 源码 → 生成 index.test.js
+│   ├── run_page_test.sh/ps1   # 生成脚本 + 执行 Playwright 测试（一体化）
+│   ├── run_page_test.md       # 工具说明文档
+│   ├── index.test.js          # 自动生成（5个按钮测试用例）
+│   ├── playwright.config.js   # Playwright 配置（亮色主题、error-results）
+│   ├── auth.setup.js          # 登录态注入（BEARER_TOKEN / UI登录）
+│   └── .env                   # BASE_URL / LOGIN_USER / BEARER_TOKEN
+│
+└── 05-out/                     # 📤 所有脚本输出（统一目录）
+    ├── mock_*.txt              # HTTP 测试日志
+    ├── {{ module.code }}_*.json             # Postman 集合
+    └── {RUN_ID}/               # 本次运行目录（时间戳）
+        ├── *.png               # 页面截图存档
+        ├── error-results/      # 失败产物（截图/trace）
+        └── html-report/        # 报告与汇总文件
+            ├── index.html      # Playwright HTML 报告（亮色主题）
+            ├── results.json    # Playwright 测试汇总（AI 可解析）
+            └── test_summary.md # 测试摘要（人类可读）
+```
+
+---
+
+## ⚡ 快速命令
+
+### 数据库重置
+```powershell
+# Windows
+cd 02-sql-scripts
+.\run_mock.ps1 0 --yes
+
+# Linux/Mac
+cd 02-sql-scripts
+./run_mock.sh 0 --yes
+```
+
+### 接口测试
+```powershell
+# Windows
+cd 03-http-scripts
+.\test_mock.ps1
+
+# Linux/Mac
+cd 03-http-scripts
+./test_mock.sh
+```
+
+### 前端页面测试
+```powershell
+# 执行页面测试（自动生成脚本 + 运行，需先启动 dev server）
+# Windows
+cd 04-page-scripts
+.\run_page_test.ps1
+
+# Linux/Mac
+cd 04-page-scripts
+./run_page_test.sh
+
+# 仅重新生成测试脚本（不执行测试）
+python3 run_page_test.py --force
+```
+
+---
+
+## 📚 关键文档索引
+
+### 设计文档
+- [database.md](01-design/database.md) - 数据库设计
+- [api.md](01-design/api.md) - API 设计
+- [ui.md](01-design/ui.md) - UI 设计
+
+---
+
+## 🎯 当前上下文
+
+### 后端状态: ✅ 完成
+
+**HTTP 测试**: ✅ 5/5 通过
+- 分页查询 ✅
+- 详情查询 ✅
+- 新增 ✅
+- 修改 ✅
+- 删除 ✅
+
+---
+
+### 前端状态: ✅ 组件完成 / ⏸️ 路由待配置 / 🎭 页面测试就绪
+
+**页面测试** (`04-page-scripts/index.test.js`):
+- ✅ 已生成 5 个 Playwright 按钮测试用例（index.vue×5）
+- 📤 测试输出: `05-out/{RUN_ID}/html-report/results.json` + `05-out/{RUN_ID}/html-report/test_summary.md`
+
+**待配置**:
+- ⏸️ 路由配置 (`router/index.js`)
+- ⏸️ 菜单配置 (系统菜单表)
+- ⏸️ 权限配置
+
+---
+
+### 下一步行动
+
+#### 优先级 1: 配置前端路由
+```javascript
+// 在 app-web/src/router/index.js 中添加
+{
+  path: '/{{ module.domain }}/{{ module.code }}',
+  component: () => import('@/views/{{ module.domain }}/{{ module.code }}/index.vue'),
+  meta: { title: '{{ module.name }}', icon: 'file' }
+}
+```
+
+#### 优先级 2: 配置菜单权限
+在系统菜单表中添加相应的菜单项。
+
+#### 优先级 3: 部署测试
+1. 执行数据库脚本（生产环境仅执行表结构）
+2. 部署后端服务
+3. 部署前端应用
+4. 执行集成测试
+
+---
+
+**💡 提示**: 当需求变更或完成任务时，请及时更新本文档的"最新变更"和"当前上下文"部分。

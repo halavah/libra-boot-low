@@ -1,0 +1,508 @@
+<template>
+  <!-- ==================== 列表 ==================== -->
+  <div v-if="innerType == 1" class="manage-list">
+    <G-form-search :form-data="formData" :form-data-info="formDataInfo" @call-back-data="handleSearch" />
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <div style="display: flex; gap: 10px;">
+        <el-button v-if="!props.isDetailMode" type="primary" icon="Plus" @click="handleAdd">新增</el-button>
+{% if detail_module.has_batch_operations and detail_module.batch_operations.delete.enabled %}
+        <el-button v-if="!props.isDetailMode" type="primary" icon="Delete" plain :disabled="selectIds.length === 0" @click="handleBatchDelete">批量删除</el-button>
+{% endif %}
+{% if detail_module.has_batch_operations and detail_module.batch_operations.physical_delete.enabled %}
+        <el-button v-if="!props.isDetailMode" type="primary" icon="DeleteFilled" plain :disabled="selectIds.length === 0" @click="handleBatchPhysicalDelete">批量彻底删除</el-button>
+{% endif %}
+{% if detail_module.has_batch_operations and detail_module.batch_operations["update"]["enabled"] %}
+        <el-button v-if="!props.isDetailMode" type="primary" plain :disabled="selectIds.length === 0" @click="openBatchUpdateDialog">批量更新</el-button>
+{% endif %}
+        <el-button type="primary" icon="Download" plain @click="handleExport">导出</el-button>
+      </div>
+      <G-operation :show-left="false" :table-header="{ originHeader: originHeader, tableHeader: tableHeader }" @call-back-data="topOperate" />
+    </div>
+
+    <G-table
+      ref="tableRef"
+      :loading="loading"
+      :table-data="tableData"
+      :table-header="tableHeader"
+      :table-info="{ customOperate: true{% if detail_module.has_batch_operations %}, isSelect: true, reserveSelection: true, rowKey: 'id'{% endif %} }"
+      :page-no="page.current"
+      :page-size="page.size"
+      @call-back-data="listOperate"
+{% if detail_module.has_batch_operations %}
+      @selection-change="handleSelectionChange"
+{% endif %}
+    >
+      {% for field in detail_fields %}{% if field.type == 'select' and field.options %}
+      <template #{{ field.name }}="{ row }">
+{% for opt in field.options %}        <el-tag v-{% if loop.index0 == 0 %}if{% else %}else-if{% endif %}="row.{{ field.name }} == '{{ opt.value }}'" type="{% if loop.index0 == 0 %}info{% elif loop.index0 == 1 %}primary{% elif loop.index0 == 2 %}success{% elif loop.index0 == 3 %}warning{% else %}danger{% endif %}">{{ opt.label }}</el-tag>
+{% endfor %}        <span v-else>--</span>
+      </template>
+{% endif %}{% endfor %}
+      <template #operateColumn="{ row }">
+        <el-button link type="primary" @click="listOperate(row, 1)">详情</el-button>
+        <el-button v-if="!props.isDetailMode" link type="primary" @click="listOperate(row, 2)">编辑</el-button>
+{% if detail_module.single_operations.delete.enabled %}
+        <el-button v-if="!props.isDetailMode" link type="primary" @click="handleDelete(row)">删除</el-button>
+{% endif %}
+{% if detail_module.single_operations.physical_delete.enabled %}
+        <el-button v-if="!props.isDetailMode" link type="primary" @click="handlePhysicalRemove(row)">彻底删除</el-button>
+{% endif %}
+      </template>
+    </G-table>
+
+    <G-pagination v-model:page-no="page.current" v-model:page-size="page.size" :total="total" @get-list="getList" />
+  </div>
+
+  <!-- ==================== 新增 / 编辑 ==================== -->
+  <div v-else-if="innerType == 2" class="manage-form">
+    <div class="inner-header">
+      <el-button type="primary" icon="ArrowLeft" @click="innerType = 1">返回</el-button>
+      <span class="inner-title">{% raw %}{{ editId ? '编辑' : '新增' }}{% endraw %}{{ detail_module.name }}</span>
+    </div>
+
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="auto" v-loading="submitting">
+      <el-row :gutter="20">
+
+{% for field in detail_fields %}{% if not field.generated %}
+{% if field.type == 'input' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-input v-model="form.{{ field.name }}" placeholder="请输入{{ field.label }}" clearable />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'textarea' %}
+        <el-col :span="24">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-input v-model="form.{{ field.name }}" type="textarea" :rows="3" placeholder="请输入{{ field.label }}" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'number' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-input-number v-model="form.{{ field.name }}" :min="0" style="width: 100%" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'decimal' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-input-number v-model="form.{{ field.name }}" :precision="2" :min="0" style="width: 100%" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'date' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-date-picker v-model="form.{{ field.name }}" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'datetime' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-date-picker v-model="form.{{ field.name }}" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'date-year' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-date-picker v-model="form.{{ field.name }}" type="year" value-format="YYYY" style="width: 100%" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'date-month' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-date-picker v-model="form.{{ field.name }}" type="month" value-format="YYYY-MM" style="width: 100%" />
+          </el-form-item>
+        </el-col>
+{% elif field.type == 'select' %}
+        <el-col :span="12">
+          <el-form-item label="{{ field.label }}" prop="{{ field.name }}">
+            <el-select v-model="form.{{ field.name }}" placeholder="请选择{{ field.label }}" clearable style="width: 100%">
+{% for option in field.options %}              <el-option label="{{ option.label }}" :value="{{ option.value }}" />
+{% endfor %}            </el-select>
+          </el-form-item>
+        </el-col>
+{% endif %}
+{% endif %}{% endfor %}
+
+        <el-col :span="24">
+          <el-form-item>
+            <el-button type="primary" :loading="submitting" @click="handleSubmit">确认</el-button>
+            <el-button @click="innerType = 1">取消</el-button>
+          </el-form-item>
+        </el-col>
+      </el-row>
+    </el-form>
+  </div>
+
+  <!-- ==================== 详情 ==================== -->
+  <div v-else-if="innerType == 3" class="manage-detail">
+    <div class="inner-header">
+      <el-button type="primary" icon="ArrowLeft" @click="innerType = 1">返回</el-button>
+      <span class="inner-title">{{ detail_module.name }}详情</span>
+    </div>
+
+    <el-descriptions :column="2" border v-loading="detailLoading">
+{% for field in detail_fields %}{% if not field.generated %}
+{% if field.type == 'select' and field.options %}
+      <el-descriptions-item label="{{ field.label }}">{{ '{{' }} get{{ field.name_pascal }}Label(detail.{{ field.name }}) {{ '}}' }}</el-descriptions-item>
+{% elif field.type in ['date-year', 'date-month', 'date', 'datetime'] %}
+      <el-descriptions-item label="{{ field.label }}">{{ '{{' }} formatDate(detail.{{ field.name }}, '{{ field.type }}') {{ '}}' }}</el-descriptions-item>
+{% else %}
+      <el-descriptions-item label="{{ field.label }}">{{ '{{' }} detail.{{ field.name }} {{ '}}' }}</el-descriptions-item>
+{% endif %}
+{% endif %}{% endfor %}
+      <el-descriptions-item label="创建时间">{{ '{{' }} formatDate(detail.createTime, 'datetime') {{ '}}' }}</el-descriptions-item>
+    </el-descriptions>
+  </div>
+{% if detail_module.has_batch_operations and detail_module.batch_operations["update"]["enabled"] %}
+
+  <!-- 批量更新弹窗 -->
+  <el-dialog title="批量更新" v-model="batchUpdateVisible" width="500px" @close="resetBatchUpdateForm">
+    <el-form :model="batchUpdateForm" label-width="auto">
+{% for f in detail_module.batch_operations["update"]["fields"] %}
+      <el-form-item label="{{ f.label }}"{% if f.required %} required{% endif %}>
+{% if f.type == 'select' %}
+        <el-select v-model="batchUpdateForm.{{ f.name }}" placeholder="请选择" clearable style="width: 100%">
+{% for opt in f.options %}
+          <el-option label="{{ opt.label }}" :value="{{ opt.value }}" />
+{% endfor %}
+        </el-select>
+{% elif f.type == 'date' %}
+        <el-date-picker v-model="batchUpdateForm.{{ f.name }}" type="date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" />
+{% elif f.type == 'textarea' %}
+        <el-input v-model="batchUpdateForm.{{ f.name }}" type="textarea" :rows="3" placeholder="请输入{{ f.label }}" />
+{% else %}
+        <el-input v-model="batchUpdateForm.{{ f.name }}" placeholder="请输入{{ f.label }}" />
+{% endif %}
+      </el-form-item>
+{% endfor %}
+    </el-form>
+    <template #footer>
+      <el-button @click="batchUpdateVisible = false">取消</el-button>
+      <el-button type="primary" :loading="batchUpdateLoading" @click="submitBatchUpdate">确认</el-button>
+    </template>
+  </el-dialog>
+{% endif %}
+</template>
+
+<script setup>
+import { ref, reactive, onMounted, toRefs } from "vue"
+import { ElMessage, ElMessageBox } from "element-plus"
+import api from "@/service/{{ module.domain }}/{{ group_code }}.js"
+import fileExport from '@/common/utils/fileExport'
+
+const props = defineProps({
+  masterId: { type: String, required: true },
+  isEmbedded: { type: Boolean, default: false },
+  isDetailMode: { type: Boolean, default: false }
+})
+
+// ==================== 状态 ====================
+const innerType = ref(1)  // 1=列表 2=新增/编辑 3=详情
+const editId = ref("")
+const loading = ref(false)
+const submitting = ref(false)
+const detailLoading = ref(false)
+const formRef = ref(null)
+const tableRef = ref(null)
+const tableData = ref([])
+const detail = ref({})
+const total = ref(0)
+const selectIds = ref([])
+{% if detail_module.has_batch_operations %}
+
+const handleSelectionChange = (selection) => {
+  selectIds.value = selection.map(item => item.id)
+}
+{% endif %}
+
+const page = reactive({ current: 1, size: 10 })
+
+const state = reactive({
+  originHeader: [
+{% for field in detail_fields %}{% if not field.generated %}    { label: "{{ field.label }}", prop: "{{ field.name }}"{% if field.type == 'select' and field.options %}, type: "slot"{% endif %} },
+{% endif %}{% endfor %}    { label: "创建时间", prop: "createTime" },
+  ],
+  tableHeader: [],
+})
+
+const { originHeader, tableHeader } = toRefs(state)
+
+const formData = reactive({
+  {{ master_module.code }}Id: "",
+{% for field in detail_fields %}{% if field.filterable %}  {{ field.name }}: {% if field.type == 'date' or field.type == 'datetime' %}[]{% else %}''{% endif %},
+{% endif %}{% endfor %}})
+
+const form = reactive({
+{% for field in detail_fields %}{% if not field.generated %}  {{ field.name }}: {% if field.type == 'number' or field.type == 'decimal' %}0{% else %}""{% endif %},
+{% endif %}{% endfor %}})
+
+const rules = {
+{% for field in detail_fields %}{% if field.required and not field.generated %}  {{ field.name }}: [{ required: true, message: "{% if field.type == 'select' %}请选择{% else %}请输入{% endif %}{{ field.label }}", trigger: "{% if field.type == 'select' %}change{% else %}blur{% endif %}" }],
+{% endif %}{% endfor %}}
+
+const formDataInfo = [
+{% for field in detail_fields %}{% if field.filterable %}{% if field.type == 'select' %}  { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'select', span: 4{% if field.options %}, options: {{ field.options_json }}{% endif %} },
+{% elif field.type == 'date' or field.type == 'datetime' %}  { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'date', span: 8, dateInfo: { type: 'daterange', format: 'YYYY-MM-DD', vFormat: 'YYYY-MM-DD' } },
+{% else %}  { label: '{{ field.label }}', prop: '{{ field.name }}', type: 'input', span: 6 },
+{% endif %}{% endif %}{% endfor %}]
+
+// ==================== 枚举 Map ====================
+{% for field in detail_fields %}{% if field.type == 'select' and field.options %}
+const {{ field.name }}Map = { {% for opt in field.options %}'{{ opt.value }}': '{{ opt.label }}'{% if not loop.last %}, {% endif %}{% endfor %} }
+const get{{ field.name_pascal }}Label = (val) => {{ field.name }}Map[val] || val
+{% endif %}{% endfor %}
+
+// ==================== 日期格式化 ====================
+const formatDate = (value, type) => {
+  if (!value) return ''
+  const s = String(value).replace('T', ' ').split('.')[0].split('+')[0].trimEnd()
+  if (type === 'date-year') return s.slice(0, 4)
+  if (type === 'date-month') return s.slice(0, 7)
+  if (type === 'date') return s.slice(0, 10)
+  return s.slice(0, 19)
+}
+
+const normalizeDateField = (value, type) => {
+  if (value === null || value === undefined || value === '') return ''
+  const s = String(value).replace('T', ' ').split('.')[0].split('+')[0].trimEnd()
+  if (type === 'date-year') return s.slice(0, 4)
+  if (type === 'date-month') return s.slice(0, 7)
+  if (type === 'date') return s.slice(0, 10)
+  if (type === 'datetime') return s.slice(0, 19)
+  return value
+}
+
+// ==================== 列表 ====================
+const getList = () => {
+  loading.value = true
+  const params = {
+    {{ master_module.code }}Id: props.masterId,
+    current: page.current,
+    size: page.size,
+    ...formData
+  }
+{% for field in detail_fields %}{% if field.filterable and (field.type == 'date' or field.type == 'datetime') %}
+  if (formData.{{ field.name }} && formData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = formData.{{ field.name }}[0]
+    params.{{ field.name }}End = formData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.get{{ detail_module.code_pascal }}List(params).then((res) => {
+    tableData.value = res.records || []
+    total.value = res.total || 0
+  }).finally(() => { loading.value = false })
+}
+
+const handleSearch = (val) => {
+  Object.assign(formData, val)
+  page.current = 1
+  getList()
+}
+
+const listOperate = (row, type) => {
+  if (type == 1) {
+    editId.value = row.id
+    loadDetail(row.id)
+    innerType.value = 3
+  } else if (type == 2) {
+    editId.value = row.id
+    loadFormDetail(row.id)
+    innerType.value = 2
+  }
+}
+
+// ==================== 新增 / 编辑 ====================
+const handleAdd = () => {
+  editId.value = ""
+  Object.keys(form).forEach(k => { form[k] = typeof form[k] === 'number' ? 0 : "" })
+  innerType.value = 2
+}
+
+const loadFormDetail = (id) => {
+  api.get{{ detail_module.code_pascal }}Detail(id).then((res) => {
+    if (res) {
+      Object.assign(form, res)
+{% for field in detail_fields %}{% if field.type in ['date-year', 'date-month', 'date', 'datetime'] %}      form.{{ field.name }} = normalizeDateField(form.{{ field.name }}, '{{ field.type }}')
+{% endif %}{% endfor %}    }
+  })
+}
+
+const handleSubmit = () => {
+  formRef.value.validate((valid) => {
+    if (!valid) return
+    submitting.value = true
+    const data = {
+      ...form,
+      {{ master_module.code }}Id: props.masterId,
+      ...(editId.value ? { id: editId.value } : {})
+    }
+    const request = editId.value ? api.update{{ detail_module.code_pascal }}(data) : api.add{{ detail_module.code_pascal }}(data)
+    request.then(() => {
+      ElMessage.success(editId.value ? "编辑成功" : "新增成功")
+      innerType.value = 1
+      getList()
+    }).finally(() => { submitting.value = false })
+  })
+}
+
+// ==================== 详情 ====================
+const loadDetail = (id) => {
+  detailLoading.value = true
+  api.get{{ detail_module.code_pascal }}Detail(id).then((res) => {
+    detail.value = res || {}
+  }).finally(() => { detailLoading.value = false })
+}
+
+// ==================== 删除 ====================
+const handleDelete = (row) => {
+  ElMessageBox.confirm("确定删除该记录吗？", "提示", { type: "warning" }).then(() => {
+    api.remove{{ detail_module.code_pascal }}([row.id]).then(() => {
+      ElMessage.success("删除成功")
+      getList()
+    })
+  })
+}
+
+// ==================== 彻底删除（物理删除） ====================
+const handlePhysicalRemove = (row) => {
+  ElMessageBox.confirm('彻底删除将无法恢复，确认删除?', '警告', { type: 'warning' }).then(() => {
+    api.physicalRemove{{ detail_module.code_pascal }}([row.id]).then(() => {
+      ElMessage.success('彻底删除成功')
+      getList()
+    })
+  })
+}
+{% if detail_module.has_batch_operations and detail_module.batch_operations.delete.enabled %}
+
+// ==================== 批量删除 ====================
+const handleBatchDelete = () => {
+  if (selectIds.value.length === 0) {
+    ElMessage.warning('请先选择要删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认删除选中的 ${selectIds.value.length} 条记录?`, '提示', { type: 'warning' }).then(() => {
+    api.batchDelete{{ detail_module.code_pascal }}(selectIds.value).then(() => {
+      ElMessage.success('删除成功')
+      selectIds.value = []
+      getList()
+    })
+  })
+}
+
+const handleBatchPhysicalDelete = () => {
+  if (selectIds.value.length === 0) {
+    ElMessage.warning('请先选择要彻底删除的记录')
+    return
+  }
+  ElMessageBox.confirm(`确认彻底删除选中的 ${selectIds.value.length} 条记录？此操作不可恢复！`, '警告', { type: 'warning' }).then(() => {
+    api.batchPhysicalDelete{{ detail_module.code_pascal }}(selectIds.value).then(() => {
+      ElMessage.success('彻底删除成功')
+      selectIds.value = []
+      getList()
+    })
+  })
+}
+{% endif %}
+{% if detail_module.has_batch_operations and detail_module.batch_operations["update"]["enabled"] %}
+
+// ==================== 批量更新（弹窗模式） ====================
+const batchUpdateVisible = ref(false)
+const batchUpdateLoading = ref(false)
+const batchUpdateForm = reactive({
+{% for f in detail_module.batch_operations["update"]["fields"] %}
+  {{ f.name }}: null,
+{% endfor %}
+})
+
+const openBatchUpdateDialog = () => {
+  if (selectIds.value.length === 0) {
+    ElMessage.warning('请先选择要操作的记录')
+    return
+  }
+  batchUpdateVisible.value = true
+}
+
+const resetBatchUpdateForm = () => {
+{% for f in detail_module.batch_operations["update"]["fields"] %}
+  batchUpdateForm.{{ f.name }} = null
+{% endfor %}
+}
+
+const submitBatchUpdate = () => {
+  const data = {}
+{% for f in detail_module.batch_operations["update"]["fields"] %}
+  if (batchUpdateForm.{{ f.name }} !== null && batchUpdateForm.{{ f.name }} !== '') {
+    data['{{ f.name }}'] = batchUpdateForm.{{ f.name }}
+  }
+{% endfor %}
+  if (Object.keys(data).length === 0) {
+    ElMessage.warning('请至少填写一个字段')
+    return
+  }
+  batchUpdateLoading.value = true
+  api.batchUpdate{{ detail_module.code_pascal }}({ ids: selectIds.value, data }).then(() => {
+    ElMessage.success('批量更新成功')
+    batchUpdateVisible.value = false
+    resetBatchUpdateForm()
+    selectIds.value = []
+    getList()
+  }).finally(() => {
+    batchUpdateLoading.value = false
+  })
+}
+{% endif %}
+
+// ==================== 顶部操作（刷新/列设置） ====================
+const topOperate = (val, arg) => {
+  if (val == 7) {
+    getList()
+  } else if (val == 8) {
+    state.tableHeader = arg
+  }
+}
+
+// ==================== 导出 ====================
+const handleExport = () => {
+  const params = {
+    {{ master_module.code }}Id: props.masterId,
+    ...formData
+  }
+{% for field in detail_fields %}{% if field.filterable and (field.type == 'date' or field.type == 'datetime') %}
+  if (formData.{{ field.name }} && formData.{{ field.name }}.length === 2) {
+    params.{{ field.name }}Begin = formData.{{ field.name }}[0]
+    params.{{ field.name }}End = formData.{{ field.name }}[1]
+    delete params.{{ field.name }}
+  }
+{% endif %}{% endfor %}
+  api.export{{ detail_module.code_pascal }}(params).then((res) => {
+    fileExport(res.data, "xlsx", "{{ detail_module.name }}列表")
+  })
+}
+
+onMounted(() => {
+  state.tableHeader = state.originHeader
+  getList()
+})
+</script>
+
+<style lang="scss" scoped>
+.manage-list {
+  padding: 16px 0;
+}
+.manage-form,
+.manage-detail {
+  padding: 16px 0;
+}
+.inner-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+.inner-title {
+  font-size: 16px;
+  font-weight: bold;
+}
+</style>

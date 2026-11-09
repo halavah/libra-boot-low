@@ -1,0 +1,37 @@
+package {{ project.group }}.layer.bis.{{ module.package_path }}.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.po.Biz{{ module.domain_pascal }}{{ module.code_pascal }};
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.param.{{ module.domain_pascal }}{{ module.code_pascal }}Param;
+import {{ project.group }}.layer.bis.{{ module.package_path }}.entity.vo.{{ module.domain_pascal }}{{ module.code_pascal }}VO;
+import org.apache.ibatis.annotations.Mapper;
+import java.util.List;
+import org.apache.ibatis.annotations.Param;
+
+/**
+ * {{ module.name }} Mapper
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Mapper
+public interface {{ module.domain_pascal }}{{ module.code_pascal }}Mapper extends BaseMapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}> {
+
+    /**
+     * 分页查询
+     *
+     * @param page 分页对象
+     * @param param 查询参数
+     * @return 分页结果
+     */
+    IPage<{{ module.domain_pascal }}{{ module.code_pascal }}VO> selectPageVo(Page<?> page, @Param("param") {{ module.domain_pascal }}{{ module.code_pascal }}Param param);
+
+    /**
+     * 物理删除（绕过 @TableLogic）
+     *
+     * @param ids 主键列表
+     */
+    void physicalDeleteByIds(@Param("ids") List<Long> ids);
+}

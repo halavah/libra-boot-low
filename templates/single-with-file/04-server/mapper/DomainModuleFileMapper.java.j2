@@ -1,0 +1,15 @@
+package {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import {{ project.group }}.layer.bis.{{ module.domain }}.{{ module.code }}.entity.po.Biz{{ module.domain_pascal }}{{ module.code_pascal }}File;
+import org.apache.ibatis.annotations.Mapper;
+
+/**
+ * {{ module.name }} 附件 Mapper
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Mapper
+public interface {{ module.domain_pascal }}{{ module.code_pascal }}FileMapper extends BaseMapper<Biz{{ module.domain_pascal }}{{ module.code_pascal }}File> {
+}

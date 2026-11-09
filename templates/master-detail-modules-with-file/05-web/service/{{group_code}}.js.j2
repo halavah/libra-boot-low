@@ -1,0 +1,242 @@
+/**
+ * {{ module.name }} API 服务（主表 + 多明细表合并）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+import http from '@/common/utils/http'
+
+const SVC = '/layer/v1/sys-service'
+const GROUP_URL = `${SVC}/{{ module.domain }}/{{ group_code }}`
+
+export default {
+  // ==================== 主表（{{ master_module.name }}）====================
+
+  /**
+   * 主表-分页查询
+   */
+  getMasterList(params) {
+    return http.get(`${GROUP_URL}/{{ master_module.code }}/list`, params)
+  },
+
+  /**
+   * 主表-查询详情
+   */
+  getMasterDetail(id) {
+    return http.get(`${GROUP_URL}/{{ master_module.code }}/detail`, { id })
+  },
+
+  /**
+   * 主表-新增
+   */
+  addMaster(data) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/add`, data)
+  },
+
+  /**
+   * 主表-修改
+   */
+  updateMaster(data) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/update`, data)
+  },
+
+  /**
+   * 主表-删除（逻辑删除）
+   */
+  removeMaster(ids) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/remove`, ids)
+  },
+
+  /**
+   * 主表-彻底删除（物理删除）
+   */
+  physicalRemoveMaster(ids) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/physical-remove`, ids)
+  },
+
+  /**
+   * 主表-导出
+   */
+  exportMaster(params) {
+    return http.export(`${GROUP_URL}/{{ master_module.code }}/export`, params)
+  },
+{% if module.master.has_batch_operations %}
+
+  /**
+   * 主表-批量删除
+   */
+  batchDeleteMaster(ids) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/batch-delete`, ids)
+  },
+
+  /**
+   * 主表-批量彻底删除（物理删除）
+   */
+  batchPhysicalDeleteMaster(ids) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/batch-physical-delete`, ids)
+  },
+
+  /**
+   * 主表-批量更新
+   */
+  batchUpdateMaster(data) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/batch-update`, data)
+  },
+
+  /**
+   * 主表-批量状态切换
+   */
+  batchToggleMaster(data) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/batch-toggle`, data)
+  },
+{% endif %}
+{% if has_master_file %}
+
+  /**
+   * 主表-上传附件
+   */
+  uploadMasterFile(data) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/upload`, data)
+  },
+
+  /**
+   * 主表-获取附件列表
+   */
+  getMasterFileList({{ master_module.code }}Id) {
+    return http.get(`${GROUP_URL}/{{ master_module.code }}/file/list`, { {{ master_module.code }}Id })
+  },
+
+  /**
+   * 主表-删除附件
+   */
+  removeMasterFile(ids) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/file/remove`, ids)
+  },
+{% endif %}
+
+{% for dm in detail_modules %}
+  // ==================== 明细表{{ loop.index }}（{{ dm.name }}）====================
+
+  /**
+   * {{ dm.name }}-分页查询
+   */
+  get{{ dm.code_pascal }}List(params) {
+    return http.get(`${GROUP_URL}/{{ dm.code }}/list`, params)
+  },
+
+  /**
+   * {{ dm.name }}-查询详情
+   */
+  get{{ dm.code_pascal }}Detail(id) {
+    return http.get(`${GROUP_URL}/{{ dm.code }}/detail`, { id })
+  },
+
+  /**
+   * {{ dm.name }}-新增
+   */
+  add{{ dm.code_pascal }}(data) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/add`, data)
+  },
+
+  /**
+   * {{ dm.name }}-修改
+   */
+  update{{ dm.code_pascal }}(data) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/update`, data)
+  },
+
+  /**
+   * {{ dm.name }}-删除（逻辑删除）
+   */
+  remove{{ dm.code_pascal }}(ids) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/remove`, ids)
+  },
+
+  /**
+   * {{ dm.name }}-彻底删除（物理删除）
+   */
+  physicalRemove{{ dm.code_pascal }}(ids) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/physical-remove`, ids)
+  },
+
+  /**
+   * {{ dm.name }}-导出
+   */
+  export{{ dm.code_pascal }}(params) {
+    return http.export(`${GROUP_URL}/{{ dm.code }}/export`, params)
+  },
+{% if dm.has_status_toggles %}
+
+  /**
+   * {{ dm.name }}-状态切换
+   */
+  toggle{{ dm.code_pascal }}(data) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/toggle`, data)
+  },
+{% endif %}
+{% if dm.has_batch_operations %}
+
+  /**
+   * {{ dm.name }}-批量删除
+   */
+  batchDelete{{ dm.code_pascal }}(ids) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/batch-delete`, ids)
+  },
+
+  /**
+   * {{ dm.name }}-批量彻底删除（物理删除）
+   */
+  batchPhysicalDelete{{ dm.code_pascal }}(ids) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/batch-physical-delete`, ids)
+  },
+
+  /**
+   * {{ dm.name }}-批量更新
+   */
+  batchUpdate{{ dm.code_pascal }}(data) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/batch-update`, data)
+  },
+
+  /**
+   * {{ dm.name }}-批量状态切换
+   */
+  batchToggle{{ dm.code_pascal }}(data) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/batch-toggle`, data)
+  },
+{% endif %}
+{% if dm.has_file %}
+
+  /**
+   * {{ dm.name }}-上传附件
+   */
+  upload{{ dm.code_pascal }}File(data) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/upload`, data)
+  },
+
+  /**
+   * {{ dm.name }}-获取附件列表
+   */
+  get{{ dm.code_pascal }}FileList({{ dm.code }}Id) {
+    return http.get(`${GROUP_URL}/{{ dm.code }}/file/list`, { {{ dm.code }}Id })
+  },
+
+  /**
+   * {{ dm.name }}-删除附件
+   */
+  remove{{ dm.code_pascal }}File(ids) {
+    return http.post(`${GROUP_URL}/{{ dm.code }}/file/remove`, ids)
+  },
+{% endif %}
+{% endfor %}
+{% if module.master.has_status_toggles %}
+
+  // ==================== 主表状态切换 ====================
+
+  /**
+   * 主表状态切换
+   */
+  toggleMaster(data) {
+    return http.post(`${GROUP_URL}/{{ master_module.code }}/toggle`, data)
+  }
+{% endif %}
+}

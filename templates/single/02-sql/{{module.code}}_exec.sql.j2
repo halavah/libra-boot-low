@@ -1,0 +1,35 @@
+-- =====================================================
+-- {{ module.name }} 模块数据库脚本
+-- 模块: {{ module.code }} ({{ module.domain }})
+-- 所属系统: {{ project.name }}
+-- =====================================================
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ----------------------------
+-- 1. 清理旧表
+-- ----------------------------
+DROP TABLE IF EXISTS `biz_{{ module.domain }}_{{ module.code }}`;
+
+-- ----------------------------
+-- 2. 创建表结构
+-- ----------------------------
+CREATE TABLE `biz_{{ module.domain }}_{{ module.code }}` (
+  `id`           BIGINT       NOT NULL                   COMMENT '主键ID（雪花算法）',
+{% for field in fields %}
+  `{{ field.column_name }}`{% if field.sql_length %}{{ '' }}{% else %}{{ '' }}{% endif %}  {{ field.sql_type }}{% if field.sql_length %}({{ field.sql_length }}){% endif %} {% if field.required %}NOT NULL{% else %}DEFAULT NULL{% endif %} COMMENT '{{ field.label }}{% if field.required %}（必填）{% endif %}',
+{% endfor %}
+  `is_deleted`   INT          NOT NULL DEFAULT 0         COMMENT '逻辑删除：0=正常，1=已删除',
+  `create_time`  DATETIME     DEFAULT NULL               COMMENT '创建时间',
+  `create_user`  BIGINT       DEFAULT NULL               COMMENT '创建人ID',
+  `create_dept`  BIGINT       DEFAULT NULL               COMMENT '创建部门ID（数据权限）',
+  `update_time`  DATETIME     DEFAULT NULL               COMMENT '更新时间',
+  `update_user`  BIGINT       DEFAULT NULL               COMMENT '更新人ID',
+  PRIMARY KEY (`id`){% for field in fields %}{% if field.indexed %},
+  INDEX `idx_{{ field.column_name }}` (`{{ field.column_name }}`){% endif %}{% endfor %}
+
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='{{ module.name }}主表';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+SELECT '✅ {{ module.code_pascal }} {{ module.name }}表结构创建完成' AS status;

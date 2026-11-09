@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11', '3.13']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: pip install pyyaml jinja2 pytest
+
+    - name: Syntax check
+      run: |
+        python -m py_compile generator.py
+        python -m py_compile module/*.py
+
+    - name: Smoke test CLI
+      run: |
+        python generator.py --version
+        python generator.py --list-modes
+        python generator.py -h
+
+    - name: Render matrix check (24 configs, SB3 compliance)
+      run: |
+        mkdir -p /tmp/lmx && fail=0
+        for f in config/test/*.yml; do
+          b=$(basename "$f" .yml)
+          python generator.py "$f" "/tmp/lmx/$b" > "/tmp/lmx/$b.log" 2>&1 || { echo "RENDER FAIL: $b"; fail=1; continue; }
+          bad=$(grep -rlE "javax\.(servlet|validation)|javax\.annotation\.Resource|io\.swagger\.annotations" "/tmp/lmx/$b" 2>/dev/null | wc -l)
+          [ "$bad" != "0" ] && { echo "SB3 VIOLATION: $b ($bad files)"; fail=1; }
+        done
+        exit $fail
+
+    - name: Runtime include check (dual-mode gene)
+      run: |
+        python3 -c "
+        import yaml
+        c = yaml.safe_load(open('config/test/t1000.yml'))
+        c['modules'][0]['include_runtime'] = True
+        yaml.safe_dump(c, open('/tmp/rt_on.yml', 'w'), allow_unicode=True)
+        " && python3 generator.py /tmp/rt_on.yml /tmp/rt_out > /dev/null 2>&1
+        N=$(find /tmp/rt_out -path '*_runtime*' -type f | wc -l | tr -d ' ')
+        [ "$N" = "3" ] && echo "runtime on: 3 files ✓" || { echo "runtime on: $N files (expected 3)"; exit 1; }
+        rm -rf /tmp/rt_on.yml /tmp/rt_out
+
+    - name: Unit tests (pytest)
+      run: python -m pytest tests/ -q
+
+    - name: Full dry-run regression (all 24 configs, zero disk writes)
+      run: |
+        rm -rf output ../../out  # 清前序步骤产物，隔离本步零落盘断言
+        ok=0
+        for f in config/test/t*.yml; do
+          python generator.py "$f" --dry-run >/dev/null 2>&1 && ok=$((ok+1)) || echo "EXITFAIL: $f"
+        done
+        echo "dry-run passed: $ok/24"
+        test "$ok" -eq 24
+        test ! -d ../../out
+        test ! -d output
+
+    - name: Template render test (single mode)
+      run: |
+        python generator.py config/test/t1000.yml /tmp/smoke-out
+
+    - name: Template render test (master-detail mode)
+      run: |
+        python generator.py config/test/t5000.yml /tmp/smoke-out
+
+    - name: Verify output files exist
+      run: |
+        test -d /tmp/smoke-out || exit 1
+        find /tmp/smoke-out -name "*.java" | head -3
+        find /tmp/smoke-out -name "*.vue" | head -3
+        find /tmp/smoke-out -name "*.sql" | head -3
+        find /tmp/smoke-out -name "*.http" | head -3
