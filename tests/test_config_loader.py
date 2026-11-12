@@ -4,8 +4,8 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from module.config_loader import ConfigLoader
 
-def test_valid_modes_is_12():
-    assert len(ConfigLoader.VALID_MODES) == 12
+def test_valid_modes_is_13():
+    assert len(ConfigLoader.VALID_MODES) == 13  # 12 业务拓扑 + cloud-service（微服务独立服务·L 批新增）
 
 def test_load_and_validate_t1000():
     cl = ConfigLoader('config/test/t1000.yml')
