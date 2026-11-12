@@ -1,0 +1,20 @@
+package {{ project.group }}.module.{{ module.domain }}.api.dto;
+
+import lombok.Data;
+import java.io.Serializable;
+
+/**
+ * {{ module.name }} 远程 DTO（跨服务传输——api 包独立成件）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Data
+public class {{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO implements Serializable {
+
+    private String id;
+{% for f in non_toggle_fields %}
+    /** {{ f.label }} */
+    private {{ f.java_type }} {{ f.name }};
+{% endfor %}
+}

@@ -1,0 +1,16 @@
+### {{ module.name }} HTTP 调试集（cloud-service 模式）
+### 独立端口 {{ module.cloud_port | default(20130) }}·经网关 :20080/cloud/{{ module.domain }}
+
+### 查详情（Feign 契约端点）
+GET http://localhost:20080/cloud/{{ module.domain }}/{{ module.code }}/1
+
+### 新增
+POST http://localhost:{{ module.cloud_port | default(20130) }}/{{ module.domain }}/{{ module.code }}
+Content-Type: application/json
+
+{
+  "name": "测试数据"
+}
+
+### 全量列表
+GET http://localhost:{{ module.cloud_port | default(20130) }}/{{ module.domain }}/{{ module.code }}/list

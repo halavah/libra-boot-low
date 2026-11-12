@@ -1,0 +1,65 @@
+package {{ project.group }}.module.{{ module.domain }}.controller;
+
+import {{ project.group }}.common.entity.ApiResult;
+import {{ project.group }}.module.{{ module.domain }}.api.dto.{{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO;
+import {{ project.group }}.module.{{ module.domain }}.model.entity.{{ module.domain_pascal }}{{ module.code_pascal }}PO;
+import {{ project.group }}.module.{{ module.domain }}.service.{{ module.domain_pascal }}{{ module.code_pascal }}Service;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * {{ module.name }} 控制器（cloud-service 模式·Feign 契约端点 + REST CRUD）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@RestController
+@RequestMapping("/{{ module.domain }}/{{ module.code }}")
+@Tag(name = "{{ module.name }}")
+public class {{ module.domain_pascal }}{{ module.code_pascal }}Controller {
+
+    private final {{ module.domain_pascal }}{{ module.code_pascal }}Service svc;
+
+    public {{ module.domain_pascal }}{{ module.code_pascal }}Controller({{ module.domain_pascal }}{{ module.code_pascal }}Service svc) {
+        this.svc = svc;
+    }
+
+    /** 查详情（Feign 契约端点——跨服务查询） */
+    @GetMapping("/{id}")
+    @Operation(summary = "查详情（Feign 契约端点）")
+    public ApiResult<{{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO> get(@PathVariable String id) {
+        return ApiResult.success(svc.getDetail(id));
+    }
+
+    /** 新增 */
+    @PostMapping
+    @Operation(summary = "新增")
+    public ApiResult<Boolean> save(@RequestBody {{ module.domain_pascal }}{{ module.code_pascal }}PO body) {
+        body.setId(java.util.UUID.randomUUID().toString().replace("-", ""));
+        return ApiResult.success(svc.insert(body));
+    }
+
+    /** 修改 */
+    @PutMapping
+    @Operation(summary = "修改")
+    public ApiResult<Boolean> update(@RequestBody {{ module.domain_pascal }}{{ module.code_pascal }}PO body) {
+        return ApiResult.success(svc.updateById(body));
+    }
+
+    /** 删除（软删） */
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除")
+    public ApiResult<Boolean> delete(@PathVariable String id) {
+        return ApiResult.success(svc.deleteById(id));
+    }
+
+    /** 列表（全量——分页走 LbBase） */
+    @GetMapping("/list")
+    @Operation(summary = "全量列表")
+    public ApiResult<List<{{ module.domain_pascal }}{{ module.code_pascal }}PO>> list() {
+        return ApiResult.success(svc.list());
+    }
+}

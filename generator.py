@@ -56,6 +56,7 @@ from module import template_renderer as _tr
 
 # 导入各模式生成器
 from module.gen_single import generate as gen_single
+from module.gen_cloud_service import generate as gen_cloud_service
 from module.gen_single_with_file import generate as gen_single_with_file
 from module.gen_master_detail import generate as gen_master_detail
 from module.gen_master_detail_file import generate as gen_master_detail_file
@@ -85,6 +86,7 @@ MODE_GENERATORS = {
     'master-details-tabs-dialog-with-file': gen_master_details_tabs_dialog_file,
     'multi-table': gen_multi_table,
     'multi-table-with-file': gen_multi_table_with_file,
+    'cloud-service': gen_cloud_service,
 }
 
 # 模式分组（用于确定参数名称）

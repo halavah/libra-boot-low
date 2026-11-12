@@ -1,0 +1,23 @@
+package {{ project.group }}.module.{{ module.domain }}.api.feign;
+
+import {{ project.group }}.module.{{ module.domain }}.api.dto.{{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO;
+import {{ project.group }}.common.entity.ApiResult;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+/**
+ * {{ module.name }} Feign 契约（cloud-service 模式·api 包独立成件）
+ *
+ * <p>消费方只引本 api 包不引 service——服务名即 Nacos 注册名。
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@FeignClient(name = "libra-{{ module.domain }}-service", contextId = "{{ module.code }}RemoteService")
+public interface {{ module.domain_pascal }}{{ module.code_pascal }}RemoteService {
+
+    /** 查详情（跨服务查询端点——含关联数据时由实现层扇出/链式调下游） */
+    @GetMapping("/{{ module.domain }}/{{ module.code }}/{id}")
+    ApiResult<{{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO> get{{ module.code_pascal }}(@PathVariable("id") String id);
+}

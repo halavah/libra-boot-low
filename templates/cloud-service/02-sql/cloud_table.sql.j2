@@ -1,0 +1,9 @@
+-- {{ module.name }} 建表（cloud-service 模式）
+CREATE TABLE IF NOT EXISTS `cloud_{{ module.code }}`(
+    `id`        VARCHAR(64) PRIMARY KEY,
+{% for f in non_toggle_fields %}    `{{ f.column_name }}` {{ f.sql_type }},
+{% endfor %}    `create_time` TIMESTAMP NULL,
+    `update_time` TIMESTAMP NULL,
+    `create_user` VARCHAR(64),
+    `update_user` VARCHAR(64)
+);

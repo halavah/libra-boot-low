@@ -1,0 +1,16 @@
+package {{ project.group }}.module.{{ module.domain }}.service;
+
+import cn.myslayers.libra.framework.mybatis.base.LbBaseService;
+import {{ project.group }}.module.{{ module.domain }}.model.entity.{{ module.domain_pascal }}{{ module.code_pascal }}PO;
+
+/**
+ * {{ module.name }} 服务接口（LbBaseService 继承面）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+public interface {{ module.domain_pascal }}{{ module.code_pascal }}Service extends LbBaseService<{{ module.domain_pascal }}{{ module.code_pascal }}PO, String> {
+
+    /** 查详情（聚合口径——供 Feign 契约端点与 Controller 共用） */
+    {{ module.group | default('cn.myslayers') }}.module.{{ module.domain }}.api.dto.{{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO getDetail(String id);
+}

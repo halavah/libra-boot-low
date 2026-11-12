@@ -1,0 +1,22 @@
+package {{ project.group }}.module.{{ module.domain }};
+
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+
+/**
+ * {{ module.name }} 独立启动类（cloud-service 模式·独立进程）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@SpringBootApplication
+@MapperScan("{{ project.group }}.module.{{ module.domain }}.mapper")
+@EnableFeignClients(basePackages = {"{{ project.group }}.module.{{ module.domain }}.api"})
+public class Libra{{ module.domain_pascal }}Application {
+
+    public static void main(String[] args) {
+        SpringApplication.run(Libra{{ module.domain_pascal }}Application.class, args);
+    }
+}

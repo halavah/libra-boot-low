@@ -1,0 +1,37 @@
+package {{ project.group }}.module.{{ module.domain }}.service.impl;
+
+import cn.myslayers.libra.framework.mybatis.base.LbBaseServiceImpl;
+import {{ project.group }}.module.{{ module.domain }}.api.dto.{{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO;
+import {{ project.group }}.module.{{ module.domain }}.mapper.{{ module.domain_pascal }}{{ module.code_pascal }}Mapper;
+import {{ project.group }}.module.{{ module.domain }}.model.entity.{{ module.domain_pascal }}{{ module.code_pascal }}PO;
+import {{ project.group }}.module.{{ module.domain }}.service.{{ module.domain_pascal }}{{ module.code_pascal }}Service;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+/**
+ * {{ module.name }} 服务实现（cloud-service 模式·LbBase 五件套成员）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Slf4j
+@Service
+public class {{ module.domain_pascal }}{{ module.code_pascal }}ServiceImpl
+        extends LbBaseServiceImpl<{{ module.domain_pascal }}{{ module.code_pascal }}Mapper, {{ module.domain_pascal }}{{ module.code_pascal }}PO>
+        implements {{ module.domain_pascal }}{{ module.code_pascal }}Service {
+
+    @Override
+    public {{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO getDetail(String id) {
+        {{ module.domain_pascal }}{{ module.code_pascal }}PO po = this.getOneById(id);
+        if (po == null) {
+            return null;
+        }
+        {{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO dto = new {{ module.domain_pascal }}{{ module.code_pascal }}RemoteDTO();
+        dto.setId(po.getId());
+{% for f in non_toggle_fields %}
+        dto.set{{ f.name_pascal }}(po.get{{ f.name_pascal }}());
+{% endfor %}
+        // 扩展位：扇出/链式 Feign 调下游（参照 libra-boot-plus cloud 服务样板）
+        return dto;
+    }
+}

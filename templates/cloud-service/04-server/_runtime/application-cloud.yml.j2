@@ -1,0 +1,42 @@
+# {{ module.name }} 拆模式配置（--spring.profiles.active=cloud 激活）
+server:
+  port: {{ module.cloud_port | default(20130) }}
+
+spring:
+  application:
+    name: libra-{{ module.domain }}-service
+  datasource:
+    dynamic:
+      seata: true
+      primary: master
+      datasource:
+        master:
+          url: ${MYSQL_URL:jdbc:mysql://localhost:3306/libra-boot-plus?characterEncoding=UTF-8&useUnicode=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+          username: ${MYSQL_USER:root}
+          password: ${MYSQL_PWD:123456}
+          driver-class-name: com.mysql.cj.jdbc.Driver
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        fail-fast: false
+        register-enabled: ${NACOS_REGISTER:true}
+
+seata:
+  enabled: true
+  enable-auto-data-source-proxy: true
+  application-id: ${spring.application.name}
+  tx-service-group: libra_tx_group
+  service:
+    vgroup-mapping:
+      libra_tx_group: default
+    grouplist:
+      default: ${SEATA_ADDR:localhost:8091}
+
+rocketmq:
+  name-server: ${MQ_ADDR:localhost:9876}
+
+management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:0.1}

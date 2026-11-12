@@ -45,7 +45,7 @@ class ConfigLoader:
     """
 
     REQUIRED_MODULE_FIELDS = ['name', 'code', 'domain', 'mode']
-    VALID_MODES = ['single', 'single-with-file', 'multi-table', 'multi-table-with-file', 'master-detail', 'master-detail-with-file', 'master-detail-modules', 'master-detail-modules-with-file', 'master-details-tabs', 'master-details-tabs-with-file', 'master-details-tabs-dialog', 'master-details-tabs-dialog-with-file']
+    VALID_MODES = ['single', 'single-with-file', 'multi-table', 'multi-table-with-file', 'master-detail', 'master-detail-with-file', 'master-detail-modules', 'master-detail-modules-with-file', 'master-details-tabs', 'master-details-tabs-with-file', 'master-details-tabs-dialog', 'master-details-tabs-dialog-with-file', 'cloud-service']
     MASTER_DETAIL_MODES = ['master-detail', 'master-detail-with-file', 'master-detail-modules', 'master-detail-modules-with-file', 'master-details-tabs', 'master-details-tabs-with-file', 'master-details-tabs-dialog', 'master-details-tabs-dialog-with-file']
 
     # 业务域代码 → 中文名映射，用于模板中的注释和说明文字

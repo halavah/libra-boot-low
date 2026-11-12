@@ -1,0 +1,40 @@
+# =====================================================
+# cloud-service 模式 — 微服务独立服务
+# =====================================================
+# 适用场景: 微服务拆模式——独立进程+Nacos 注册+Feign 互调
+#
+# 产物与 libra-boot-plus 的 cloud 服务（user/product/order）同构：
+#   api/     Feign 契约+远程 DTO（消费方只引本包）
+#   model/   PO 实体（LbBaseEntity·cloud_ 前缀表）
+#   service/ 接口+实现（LbBaseService 五件套）+ Controller
+#   _runtime/ 独立启动类 + application-cloud.yml（Nacos/Seata/MQ/Tracing）
+#
+# =====================================================
+project:
+  name: 微服务测试项目
+  code: cloud-demo
+  version: 1.0.0
+  group: cn.myslayers
+
+modules:
+  - name: 商品微服务
+    code: product
+    domain: product
+    mode: cloud-service
+    description: 商品查询微服务（Feign 契约样板）
+    cloud_port: 20140
+
+    fields:
+      - name: name
+        label: 商品名
+        type: string
+        length: 128
+      - name: price
+        label: 价格
+        type: decimal
+      - name: stock
+        label: 库存
+        type: integer
+      - name: status
+        label: 状态
+        type: integer

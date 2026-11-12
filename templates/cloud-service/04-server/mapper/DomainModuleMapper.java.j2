@@ -1,0 +1,15 @@
+package {{ project.group }}.module.{{ module.domain }}.mapper;
+
+import cn.myslayers.libra.framework.mybatis.base.LbBaseMapper;
+import {{ project.group }}.module.{{ module.domain }}.model.entity.{{ module.domain_pascal }}{{ module.code_pascal }}PO;
+import org.apache.ibatis.annotations.Mapper;
+
+/**
+ * {{ module.name }} Mapper（LbBase 五件套成员）
+ *
+ * @author Libra Boot Low Generator
+ * @since {{ generated_date }}
+ */
+@Mapper
+public interface {{ module.domain_pascal }}{{ module.code_pascal }}Mapper extends LbBaseMapper<{{ module.domain_pascal }}{{ module.code_pascal }}PO> {
+}
