@@ -1,168 +1,198 @@
+<a id="top"></a>
 <div align="center">
 
 # 🚀 Libra Boot Low
 
-**Low-code generator based on YAML config + Jinja2 templates — one command to a full Spring Boot + Vue3 skeleton**
+**A YAML and Jinja2 code generator for developers building Spring Boot and Vue business scaffolding.**
 
 [![PyPI](https://img.shields.io/pypi/v/libra-boot-low)](https://pypi.org/project/libra-boot-low/)
-[![PyPI downloads](https://img.shields.io/pypi/dm/libra-boot-low)](https://pypi.org/project/libra-boot-low/)
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Spring Boot](https://img.shields.io/badge/generates-Spring%20Boot-6DB33F.svg)](https://spring.io/projects/spring-boot)
-[![Vue3](https://img.shields.io/badge/generates-Vue3-42b883.svg)](https://vuejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.9+-blue)](https://www.python.org/)
+[![Spring Boot](https://img.shields.io/badge/generates-Spring%20Boot-6DB33F)](https://spring.io/projects/spring-boot)
+[![Vue](https://img.shields.io/badge/generates-Vue-42b883)](https://vuejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **English** | [简体中文](README.md)
 
 </div>
 
-> **This README follows the open-source documentation spec**: uniform structure and badges, badges point only to publicly reachable resources, version info points to the dynamic release-channel page.
-
-
----
-
-## 📖 Table of Contents
-
-- [Quick Start](#-quick-start)
-- [Generation Pipeline](#-generation-pipeline)
-- [12 Generation Modes](#-12-generation-modes)
-- [Installation](#-installation)
-- [Tests](#-tests)
-- [CLI Options](#-cli-options)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Contact](#-contact)
-- [Star History](#-star-history)
+> This README follows the open-source documentation standard: consistent structure and badges, public badge resources only, and release-channel pages for current versions.
 
 ---
 
-## 🚀 Quick Start
+## 📖 Contents
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+- [Quick start](#quick-start)
+- [Installation and source](#installation)
+- [Running screenshots](#screenshots)
+- [Generation modes](#modes)
+- [Output and integration](#output)
+- [Configuration and CLI](#cli)
+- [Structure](#structure)
+- [Verification](#verification)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
+- [Star History](#star-history)
+- [Back to top](#back-to-top)
 
-# Generate with example config
-python3 generator.py config/test/t1000.yml
+---
 
-# Or use the interactive menu
-bash run.sh
+<a id="quick-start"></a>
+## 🚀 Quick start
 
-# Generate all modules
-bash run.sh --all
+The complete generator needs the source tree, including `templates/` and `config/`. Use Python meeting [pyproject.toml](pyproject.toml)’s requirement:
+
+```sh
+git clone https://github.com/halavah/libra-boot-low.git
+cd libra-boot-low
+python3 -m venv .venv
+# macOS / Linux
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python generator.py config/test/t1000.yml generated --dry-run
+python generator.py config/test/t1000.yml generated
 ```
+The preview lists planned files without writing output or reports. The second command writes the sample module beneath `generated/test/t1000/`, plus a manifest and an `output/` run report. Generation does not execute SQL or launch the generated application. Always pass an explicit output directory; the CLI default points outside the repository.
 
-## 🔄 Generation Pipeline
+<a id="installation"></a>
+## 📦 Installation and source
 
-```
-YAML Config → generator.py → module/gen_*.py → templates/{mode}/ → out/{domain}/{code}/
-```
+Source code: [GitHub](https://github.com/halavah/libra-boot-low) · [Gitee](https://gitee.com/halavah/libra-boot-low), public, branch `master`.
 
-## 🧩 12 Generation Modes
+Documentation: this README, [configuration notes](config/README_EN.md), and example files under `config/test/`.
 
-| Mode | Description |
-|------|-------------|
-| `single` | Single-table CRUD |
-| `single-with-file` | Single-table + file upload |
-| `multi-table` | Multi-table with relations |
-| `multi-table-with-file` | Multi-table + file upload |
-| `master-detail` | Master-detail (one-to-many) |
-| `master-detail-with-file` | Master-detail + file upload |
-| `master-detail-modules` | Master-detail (modularized sub-modules) |
-| `master-detail-modules-with-file` | Modularized master-detail + file upload |
-| `master-details-tabs` | Master with multiple detail tabs |
-| `master-details-tabs-with-file` | Detail tabs + file upload |
-| `master-details-tabs-dialog` | Detail tabs with dialog editing |
-| `master-details-tabs-dialog-with-file` | Detail tabs dialog + file upload |
-
-## 📦 Installation
-
-| Channel | Command | Status |
+| Channel | Status | Scope |
 |---|---|---|
-| PyPI | `pip install libra-boot-low` | ✅ Live |
-| GitHub Release wheel (internal) | `pip install https://github.com/halavah/libra-boot-low/releases/latest/download/libra_boot_low-1.1.2-py3-none-any.whl` | ✅ Live |
-| Direct from git (internal) | `pip install git+https://github.com/halavah/libra-boot-low.git` | ✅ Live |
-| Run from source | `pip install -r requirements.txt` then `python3 generator.py` | ✅ Live |
+| Source clone + `requirements.txt` | Recommended; exercised locally | Includes templates and sample configuration |
+| [PyPI](https://pypi.org/project/libra-boot-low/) | Published | Current wheel lacks templates and sample configuration; not the complete generation path |
+| [GitHub Releases](https://github.com/halavah/libra-boot-low/releases) | Release channel | Check actual assets; no filename/version is assumed here |
 
-## 🧪 Tests
+Package versions follow the release channels. Installing the current PyPI wheel alone is not equivalent to running the full source tree.
 
-```bash
-pip install pytest
-python -m pytest tests/ -q   # 12 cases: config loading / type mapping / DRY_RUN zero-write / renderer / single-mode output structure
+<a id="screenshots"></a>
+## 🖼️ Running screenshots
+
+The first image is an excerpt of actual CLI output displayed in a browser, with local paths redacted. The second shows generated SQL, not a database execution result.
+
+![Actual generation output](assets/screenshots/generation.png)
+
+![Generated SQL](assets/screenshots/generated-sql.png)
+
+<a id="modes"></a>
+## 🧩 Generation modes
+
+Run `python generator.py --list-modes` for the current registry.
+
+| Mode | Purpose |
+|---|---|
+| `single` | Single table |
+| `single-with-file` | Single table with attachments |
+| `multi-table` | Independent tables |
+| `multi-table-with-file` | Independent tables with attachments |
+| `master-detail` | Master/detail |
+| `master-detail-with-file` | Master/detail with attachments |
+| `master-detail-modules` | Modular detail tables |
+| `master-detail-modules-with-file` | Modular detail tables with attachments |
+| `master-details-tabs` | Multiple detail tabs |
+| `master-details-tabs-with-file` | Detail tabs with attachments |
+| `master-details-tabs-dialog` | Tabbed detail dialogs |
+| `master-details-tabs-dialog-with-file` | Tabbed dialogs with attachments |
+| `cloud-service` | Separate service contracts, model and service |
+
+<a id="output"></a>
+## 📂 Output and integration
+
+```text
+generated/
+├─ .manifest.json
+└─ test/t1000/
+   ├─ 00-inbox/               # Input placeholder
+   ├─ 01-design/              # API, database and UI notes
+   ├─ 02-sql/                 # SQL and data examples
+   ├─ 02-sql-scripts/         # SQL helper scripts
+   ├─ 03-http/                # HTTP request examples
+   ├─ 03-http-scripts/        # Request/testing helpers
+   ├─ 04-server/              # Java backend
+   └─ 05-web/                 # Vue pages and services
 ```
 
-## ⌨️ CLI Options
+The exact structure depends on mode and options. Review SQL before execution, integrate generated code into your target project, and supply its database, authentication, UI components and optional runtime dependencies. The generator is not a standalone deployment platform.
 
-| Option | Description |
-|--------|-------------|
-| `--version` | Show version |
-| `--list-modes` | List all supported modes |
-| `--dry-run` | Preview files without writing |
-| `--module <code>` | Generate a specific module only |
-| `--mode <mode>` | Override mode from YAML |
-| `--validate` | Validate config without generating |
-| `--list` | List modules in a config |
-| `--update-index` | Rebuild config/index.json |
+<a id="cli"></a>
+## ⌨️ Configuration and CLI
 
-The `run.sh` / `run.ps1` launchers additionally provide an interactive menu, `--all` (batch generate everything) and `--domain <name>` filtering.
+| Command/option | Effect |
+|---|---|
+| `python generator.py --list-modes` | List registered modes |
+| `python generator.py config/test/t1000.yml --validate` | Validate configuration only |
+| `python generator.py config/test/t1000.yml --list` | List configured modules |
+| `--module CODE` | Select one module |
+| `--mode MODE` | Override its mode |
+| `--dry-run` | Preview without writing files |
+| `--update-index` | Rebuild `config/index.json` |
 
+`bash run.sh` and `run.ps1` provide the interactive launcher. `--all` and domain filtering belong to that launcher; inspect its help before using them. Start custom configurations from a complete `config/test/*.yml`, keeping required fields and mode-specific structures.
+
+<a id="structure"></a>
+## 🗂️ Structure
+
+```text
+generator.py        # CLI
+module/             # Configuration, field building and generators
+templates/          # Jinja2 templates, grouped by mode
+config/test/        # Complete example configurations
+tests/              # Configuration, renderer and output tests
+run.sh / run.ps1    # Launchers
+assets/screenshots/ # README images
+```
+
+<a id="verification"></a>
+## ✅ Verification
+
+```sh
+python -m pip install pytest
+python -m pytest tests/ -q
+```
+
+Local checks exercised the existing tests, real single-table generation, and dry-run across the example configurations. Generated Java/Vue application compilation, SQL execution and deployed end-to-end behavior were not tested. Treat generated files as code for review, not a certified running application.
+
+<a id="contributing"></a>
 ## 🤝 Contributing
 
-Issues and Pull Requests are welcome!
+Authorized collaborators create a feature branch from `master`, validate their changes and submit a PR. Public repositories may be forked first. Keep changes focused and state the commands run and any checks omitted.
 
-```bash
-# 1. Fork this repository
-# 2. Create a feature branch
-git checkout -b feature/your-feature
-# 3. Run tests before submitting
-python -m pytest tests/ -q
-# 4. Push and open a PR
-git push origin feature/your-feature
-```
+Add regression coverage for configuration, types and templates. Run the existing tests and all example configurations in dry-run mode; verify that dry-run creates neither generated output nor reports. Review real generated files after template changes. Do not run generated SQL against shared databases.
 
-**Contribution guidelines**:
-- New features must include test cases (`tests/` directory)
-- Template changes must pass full dry-run regression (24 configs, zero disk writes)
-- Commit messages should describe changes in Chinese
-
+<a id="license"></a>
 ## 📄 License
 
-MIT License — See [LICENSE](LICENSE) file for details.
+[MIT License](LICENSE).
 
-### License Summary
+- ✅ Allows commercial use, modification, redistribution and private use.
+- ⚠️ Keep the copyright and permission notice in copies or substantial portions. Third-party resources retain their own licenses.
+- No warranty or liability is provided.
 
-MIT is one of the most permissive open-source licenses:
+MIT keeps reuse straightforward while preserving attribution.
 
-- ✅ **Permitted**: Commercial use, modification, distribution, private use, patent use
-- ⚠️ **Only requirement**: Preserve copyright and license notices
-- ❌ **Not provided**: Author warranty, liability
-
-**Why MIT?**
-
-This is a tool-type project. MIT was chosen for:
-- **Zero barrier**: Enterprises can adopt without copyleft concerns
-- **Output independence**: Generated code is NOT bound by this project's license
-- **Community friendly**: Encourages forks and derivative work
-
+<a id="contact"></a>
 ## 📮 Contact
 
-**Maintainer**: Halavah
-**GitHub**: [@halavah](https://github.com/halavah)
+Maintainer: [halavah](https://github.com/halavah).
 
-**Links**:
-- Repository: [GitHub](https://github.com/halavah/libra-boot-low)
-- Issues: [Issue Tracker](https://github.com/halavah/libra-boot-low/issues)
-- Releases: [PyPI](https://pypi.org/project/libra-boot-low/)
+- [Issues](https://github.com/halavah/libra-boot-low/issues)
+- [Releases](https://github.com/halavah/libra-boot-low/releases) — use Watch → Custom → Releases to follow releases.
 
+<a id="star-history"></a>
 ## ⭐ Star History
 
-If this project helps you, please give us a ⭐ Star! Your support is our greatest motivation!
+If this project is useful, consider starring it.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=halavah/libra-boot-low&type=Date)](https://star-history.com/#halavah/libra-boot-low&Date)
+[![Star History](https://api.star-history.com/svg?repos=halavah/libra-boot-low&type=Date)](https://star-history.com/#halavah/libra-boot-low&Date)
 
----
+<a id="back-to-top"></a>
+## ⬆ Back to top
 
-**Made with ❤️**
+Made with ❤️. If this project helps you, consider giving it a Star.
 
-If this project helps you, please consider giving us a ⭐ Star
-
-[⬆ Back to Top](#-libra-boot-low)
+[⬆ Back to top](#top)

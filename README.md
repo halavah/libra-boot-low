@@ -1,15 +1,15 @@
+<a id="top"></a>
 <div align="center">
 
 # 🚀 Libra Boot Low
 
-**基于 YAML 配置 + Jinja2 模板的低代码生成器，一键生成 Spring Boot + Vue3 完整业务骨架**
+**将 YAML 配置与 Jinja2 模板转为 Spring Boot、Vue、SQL 和接口示例的代码生成器。**
 
 [![PyPI](https://img.shields.io/pypi/v/libra-boot-low)](https://pypi.org/project/libra-boot-low/)
-[![PyPI downloads](https://img.shields.io/pypi/dm/libra-boot-low)](https://pypi.org/project/libra-boot-low/)
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Spring Boot](https://img.shields.io/badge/generates-Spring%20Boot-6DB33F.svg)](https://spring.io/projects/spring-boot)
-[![Vue3](https://img.shields.io/badge/generates-Vue3-42b883.svg)](https://vuejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.9+-blue)](https://www.python.org/)
+[![Spring Boot](https://img.shields.io/badge/generates-Spring%20Boot-6DB33F)](https://spring.io/projects/spring-boot)
+[![Vue](https://img.shields.io/badge/generates-Vue-42b883)](https://vuejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 [English](README_EN.md) | **简体中文**
 
@@ -17,234 +17,184 @@
 
 > **本文遵循开源说明规范**：结构与徽章按统一体例，徽章仅指向公开可访问资源，版本信息指向发布渠道动态页。
 
-
 ---
 
 ## 📖 目录
 
-- [快速上手](#-快速上手)
-- [安装](#-安装)
-- [生成链路](#-生成链路)
-- [十三种生成模式](#-十三种生成模式)
-- [生成产物](#-生成产物)
-- [配置示例](#-配置示例)
-- [测试](#-测试)
-- [CLI 参数](#-cli-参数)
-- [技术栈](#-技术栈)
-- [项目结构](#-项目结构)
-- [贡献指南](#-贡献指南)
-- [License](#-license)
-- [联系我们](#-联系我们)
-- [Star History](#-star-history)
+- [快速开始](#quick-start)
+- [安装与源码](#installation)
+- [运行截图](#screenshots)
+- [生成模式](#modes)
+- [产物与接入](#output)
+- [配置与命令](#cli)
+- [目录结构](#structure)
+- [验证范围](#verification)
+- [贡献指南](#contributing)
+- [License](#license)
+- [联系我们](#contact)
+- [Star History](#star-history)
+- [回到顶部](#back-to-top)
 
 ---
 
-## 🚀 快速上手
+<a id="quick-start"></a>
+## 🚀 快速开始
 
-```bash
-# 方式一：直接从源码运行
-pip install -r requirements.txt
+完整生成需要源码中的 `templates/` 与 `config/`；Python 基线见 [pyproject.toml](pyproject.toml)：
 
-# 使用示例配置生成
-python3 generator.py config/test/t1000.yml
-
-# 或使用交互式菜单
-bash run.sh
-
-# 批量生成全部模块
-bash run.sh --all
+```sh
+git clone https://github.com/halavah/libra-boot-low.git
+cd libra-boot-low
+python3 -m venv .venv
+# macOS / Linux
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python generator.py config/test/t1000.yml generated --dry-run
+python generator.py config/test/t1000.yml generated
 ```
+预览只列出计划文件，不写产物或报告；第二条生成命令将示例模块写入 `generated/test/t1000/`，并生成清单与 `output/` 运行报告。生成器不会执行 SQL 或启动应用。始终显式指定输出目录，CLI 默认位置位于仓库外。
 
-## 📦 安装
+<a id="installation"></a>
+## 📦 安装与源码
 
-| 通道 | 命令 | 状态 |
+源码：[GitHub](https://github.com/halavah/libra-boot-low) · [Gitee](https://gitee.com/halavah/libra-boot-low)，公开仓，主线 `master`。
+
+文档：本篇、[配置说明](config/README.md) 及 `config/test/` 的示例。
+
+| 渠道 | 状态 | 范围 |
 |---|---|---|
-| 源码直跑 | `pip install -r requirements.txt` 后 `python3 generator.py` | ✅ 现可用 |
-| GitHub Release wheel | `pip install https://github.com/halavah/libra-boot-low/releases/latest/download/libra_boot_low-1.2.0-py3-none-any.whl` | ✅ 现可用 |
-| git 直装 | `pip install git+https://github.com/halavah/libra-boot-low.git` | 🔒 内网（需克隆权限） |
-| PyPI | `pip install libra-boot-low` | ✅ 已上架（Trusted Publishing 自动发布，推 v* 标签即出新版；最新版见 [PyPI 页面](https://pypi.org/project/libra-boot-low/)） |
+| 克隆源码并安装 `requirements.txt` | 推荐，已在本地运行 | 包含模板及示例配置 |
+| [PyPI](https://pypi.org/project/libra-boot-low/) | 已发布 | 当前 wheel 未包含模板和示例配置，不是完整生成路径 |
+| [GitHub Releases](https://github.com/halavah/libra-boot-low/releases) | 发布渠道 | 以实际附件为准，不写死文件名或版本 |
 
-## 🔄 生成链路
+版本以发布渠道为准；仅安装当前 PyPI wheel，不等于获得完整源码生成环境。
 
-```
-YAML 配置  ──►  generator.py  ──►  module/gen_*.py  ──►  templates/{mode}/  ──►  out/{domain}/{code}/
-  (yml/)         (主入口)          (模式生成器)         (Jinja2 模板)           (完整产物)
-```
+<a id="screenshots"></a>
+## 🖼️ 运行截图
 
-## 🧩 十三种生成模式
+第一张为实际 CLI 输出的浏览器呈现，日志做了节选并隐藏本机路径；第二张为真实生成的 SQL，不代表已执行建表。
 
-| 模式 | 说明 | 适用场景 |
-|------|------|---------|
-| `single` | 单表 CRUD | 简单业务表 |
-| `single-with-file` | 单表 + 附件上传 | 带文件的业务表 |
-| `multi-table` | 多表关联 | 主表带字典/配置表 |
-| `multi-table-with-file` | 多表 + 附件 | 带文件的多表 |
-| `master-detail` | 主从表（一对多） | 订单-订单明细 |
-| `master-detail-with-file` | 主从表 + 附件 | 带文件的主从 |
-| `master-detail-modules` | 主从表（模块化） | 子表独立成模块 |
-| `master-detail-modules-with-file` | 主从模块化 + 附件 | 带文件的主从模块化 |
-| `master-details-tabs` | 主多明细（页签） | 一主多子页签切换 |
-| `master-details-tabs-with-file` | 主多明细页签 + 附件 | 带文件的多明细 |
-| `master-details-tabs-dialog` | 主多明细（页签弹窗） | 弹窗编辑的复杂主从 |
-| `master-details-tabs-dialog-with-file` | 页签弹窗 + 附件 | 带文件的页签弹窗 |
-| `cloud-service` | 微服务独立服务（三件套） | 拆模式微服务骨架（api 契约/model/service） |
+![实际生成日志](assets/screenshots/generation.png)
 
-每种模式均有对应的 `templates/{mode}/` 模板目录和 `config/test/` 示例配置。
+![生成的建表 SQL](assets/screenshots/generated-sql.png)
 
-## 📦 生成产物
+<a id="modes"></a>
+## 🧩 生成模式
 
-每个模块按六段编号生成完整产物链：
+通过 `python generator.py --list-modes` 查看当前注册模式。
 
-```
-out/{domain}/{code}/
-├── 00-inbox/ 01-design/      # 生成物清单 + 设计说明
-├── 02-sql/ 02-sql-scripts/   # 建表 DDL + SQL 执行脚本
-├── 03-http/ 03-http-scripts/ # HTTP 接口测试用例 + 运行脚本
-├── 04-server/                # Spring Boot 后端
-│   ├── controller/ service/ mapper/  # 控制器/业务/MyBatis 数据层
-│   └── entity/{param,po,vo}/         # 实体三件套
-└── 05-web/                   # Vue3 前端
-    ├── views/                # 页面组件
-    └── service/              # API 调用
-```
+| 模式 | 用途 |
+|---|---|
+| `single` | 单表 |
+| `single-with-file` | 单表与附件 |
+| `multi-table` | 多张独立表 |
+| `multi-table-with-file` | 多表与附件 |
+| `master-detail` | 主从表 |
+| `master-detail-with-file` | 主从表与附件 |
+| `master-detail-modules` | 模块化明细 |
+| `master-detail-modules-with-file` | 模块化明细与附件 |
+| `master-details-tabs` | 主多明细页签 |
+| `master-details-tabs-with-file` | 多明细页签与附件 |
+| `master-details-tabs-dialog` | 页签弹窗 |
+| `master-details-tabs-dialog-with-file` | 页签弹窗与附件 |
+| `cloud-service` | 独立服务契约、模型及服务 |
 
-## ⚙️ 配置示例
+<a id="output"></a>
+## 📂 产物与接入
 
-```yaml
-# config/test/t1000.yml（节选——完整注释见该文件）
-project:
-  name: "Libra Boot Low"
-  code: "demo"          # 项目编码（英文小写）
-  version: "1.0.0"
-  group: "com.libra"   # 生成代码包前缀（可配置，默认 com.libra）
-
-modules:
-  - name: "单表无附件"   # 模块中文名
-    code: "t1000"       # 模块编码（英文小写）
-    domain: "test"      # 业务域编码
-    mode: "single"      # 生成模式（13 种之一）
-    fields:             # 字段清单（type 决定 Java/SQL/Vue 三端类型）
-      - { name: "title", label: "标题", type: "input", required: true }
-      - { name: "status", label: "状态", type: "select" }
-      - { name: "createTime", label: "创建时间", type: "date-year" }
+```text
+generated/
+├─ .manifest.json
+└─ test/t1000/
+   ├─ 00-inbox/               # 输入占位
+   ├─ 01-design/              # 接口、数据库及界面说明
+   ├─ 02-sql/                 # SQL 与演示数据
+   ├─ 02-sql-scripts/         # SQL 辅助脚本
+   ├─ 03-http/                # HTTP 请求示例
+   ├─ 03-http-scripts/        # 请求与验证辅助脚本
+   ├─ 04-server/              # Java 后端
+   └─ 05-web/                 # Vue 页面与服务
 ```
 
-## 🧪 测试
+实际结构随模式与配置变化。SQL 执行前必须审阅；代码需集成到目标工程，并配置数据库、鉴权、界面组件及按需运行时依赖。生成器不是独立部署平台。
 
-```bash
-pip install pytest
-python -m pytest tests/ -q   # 12 用例：配置加载/类型转换/DRY_RUN 零落盘/渲染器/单表产物结构
+<a id="cli"></a>
+## ⌨️ 配置与命令
+
+| 命令／参数 | 作用 |
+|---|---|
+| `python generator.py --list-modes` | 列出注册模式 |
+| `python generator.py config/test/t1000.yml --validate` | 仅验证配置 |
+| `python generator.py config/test/t1000.yml --list` | 列出配置模块 |
+| `--module CODE` | 选择单个模块 |
+| `--mode MODE` | 覆盖生成模式 |
+| `--dry-run` | 不落盘预览 |
+| `--update-index` | 重建 `config/index.json` |
+
+`bash run.sh` 与 `run.ps1` 提供交互启动器；`--all`、按域过滤属于启动器能力，使用前查看对应帮助。自定义配置从完整 `config/test/*.yml` 复制，保留必填字段及模式专属结构。
+
+<a id="structure"></a>
+## 🗂️ 目录结构
+
+```text
+generator.py        # CLI
+module/             # Configuration, field building and generators
+templates/          # Jinja2 templates, grouped by mode
+config/test/        # Complete example configurations
+tests/              # Configuration, renderer and output tests
+run.sh / run.ps1    # Launchers
+assets/screenshots/ # README images
 ```
 
-## ⌨️ CLI 参数
+<a id="verification"></a>
+## ✅ 验证范围
 
-**generator.py 参数：**
-
-| 参数 | 说明 |
-|------|------|
-| `config`（位置参数） | YAML 配置文件路径 |
-| `output`（位置参数） | 输出目录（默认 `../../out`） |
-| `--module <code>` / `-m` | 仅生成指定 code 的模块 |
-| `--mode <mode>` | 覆盖 YAML 中的 mode |
-| `--validate` / `-v` | 仅校验配置，不生成 |
-| `--list` / `-l` | 列出配置内的模块 |
-| `--list-modes` | 列出全部 13 种支持的模式 |
-| `--dry-run` | 预览将生成的文件列表，零落盘 |
-| `--update-index` / `-u` | 仅重建 config/index.json 索引 |
-| `--batch-timestamp <ts>` | 批量模式共享日志时间戳 |
-| `--version` | 显示版本号 |
-
-**run.sh / run.ps1 启动器额外提供：** 交互式菜单（无参数运行）、`--all`（批量生成全部模块）、`--domain <name>`（按域过滤）——由启动器循环调用 generator.py 实现。
-
-## 🛠️ 技术栈
-
-| 组件 | 说明 |
-|------|------|
-| Python 3.9+ | 运行环境 |
-| PyYAML | 配置解析 |
-| Jinja2 | 模板渲染 |
-
-## 📁 项目结构
-
-```
-libra-boot-low/
-├── generator.py            # 主入口
-├── run.sh                  # Shell 交互式菜单
-├── run.ps1                 # PowerShell 交互式菜单
-├── module/                 # 核心生成模块
-│   ├── config_loader.py    # YAML 配置加载
-│   ├── field_builder.py    # 字段构建器
-│   ├── template_renderer.py # Jinja2 渲染器
-│   └── gen_*.py            # 各模式生成器
-├── templates/              # Jinja2 模板（13 种模式）
-│   ├── single/
-│   ├── single-with-file/
-│   ├── multi-table/
-│   ├── master-detail/
-│   └── ...
-├── config/                 # YAML 配置文件
-│   ├── README.md           # 配置说明
-│   └── test/               # 示例配置
+```sh
+python -m pip install pytest
+python -m pytest tests/ -q
 ```
 
+本地已运行现有测试、单表实际生成及全部示例配置的 dry-run。未验证生成的 Java／Vue 应用编译、SQL 执行或部署后的端到端行为；生成物是待审阅代码，不是已验收运行的业务应用。
+
+<a id="contributing"></a>
 ## 🤝 贡献指南
 
-欢迎提交 Issue 和 Pull Request！
+获授权协作者从 `master` 创建功能分支，完成验证后提交 PR；公开仓也可先 Fork。保持提交范围明确，写清实际执行的命令及未运行检查。
 
-```bash
-# 1. Fork 本仓库
-# 2. 创建特性分支
-git checkout -b feature/your-feature
-# 3. 提交变更（跑 pytest 确保不破坏）
-python -m pytest tests/ -q
-# 4. 推送并发 PR
-git push origin feature/your-feature
-```
+配置、字段类型和模板调整应附带回归验证。运行现有测试及全部示例配置的 dry-run，检查预览不会生成产物或报告；模板改动还需审查实际生成文件，不对共享数据库执行演示 SQL。
 
-**贡献要求**：
-- 新增功能须附带测试用例（`tests/` 目录）
-- 模板变更须跑全量 dry-run 回归（24 配置零落盘）
-- 提交信息用中文描述变更内容
-
+<a id="license"></a>
 ## 📄 License
 
-MIT License — 详见 [LICENSE](LICENSE) 文件。
+[MIT License](LICENSE)。
 
-### 协议解读
+- ✅ 允许商业使用、修改、分发和私有使用。
+- ⚠️ 在副本或实质性部分中保留版权与许可声明；第三方资源仍遵守各自许可。
+- 不提供担保，作者不承担许可所述责任。
 
-MIT 是最宽松的开源协议之一：
+选择 MIT，便于开发者复用示例与工具，同时保留来源声明。
 
-- ✅ **允许**：商业使用、修改、分发、私有使用、专利使用
-- ⚠️ **唯一要求**：保留版权声明和许可声明
-- ❌ **不提供**：作者担保、责任担保
-
-**为什么选择 MIT？**
-
-低代码生成器是工具类项目，选 MIT 是为了：
-- **零门槛使用**：企业可放心引入，无开源传染性
-- **广泛兼容**：生成的代码不受本项目协议约束
-- **社区友好**：鼓励 Fork 和二次开发
-
+<a id="contact"></a>
 ## 📮 联系我们
 
-**项目维护者**：Halavah
-**GitHub**：[@halavah](https://github.com/halavah)
+维护者：[halavah](https://github.com/halavah)。
 
-**相关链接**：
-- 项目主页：[GitHub](https://github.com/halavah/libra-boot-low)
-- 问题反馈：[Issues](https://github.com/halavah/libra-boot-low/issues)
-- 发布记录：[PyPI](https://pypi.org/project/libra-boot-low/)
+- [问题反馈](https://github.com/halavah/libra-boot-low/issues)
+- [发布渠道](https://github.com/halavah/libra-boot-low/releases)：可通过 Watch → Custom → Releases 订阅发布。
 
+<a id="star-history"></a>
 ## ⭐ Star History
 
-如果这个项目对你有帮助，请给我们一个 ⭐ Star！你的支持是我们最大的动力！
+如果项目对您有帮助，欢迎 Star 支持。
 
-[![Star History Chart](https://api.star-history.com/svg?repos=halavah/libra-boot-low&type=Date)](https://star-history.com/#halavah/libra-boot-low&Date)
+[![Star History](https://api.star-history.com/svg?repos=halavah/libra-boot-low&type=Date)](https://star-history.com/#halavah/libra-boot-low&Date)
 
----
+<a id="back-to-top"></a>
+## ⬆ 回到顶部
 
-**用 ❤️ 构建 | Made with ❤️**
+用 ❤️ 构建 | Made with ❤️
 
-如果这个项目帮助到了你，请考虑给我们一个 ⭐ Star
+如果这个项目对您有帮助，欢迎给予 Star 支持。
 
-[⬆ 回到顶部](#-libra-boot-low)
+[⬆ 回到顶部](#top)
