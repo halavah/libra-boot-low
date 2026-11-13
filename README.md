@@ -25,7 +25,7 @@
 - [快速上手](#-快速上手)
 - [安装](#-安装)
 - [生成链路](#-生成链路)
-- [十二种生成模式](#-十二种生成模式)
+- [十三种生成模式](#-十三种生成模式)
 - [生成产物](#-生成产物)
 - [配置示例](#-配置示例)
 - [测试](#-测试)
@@ -71,7 +71,7 @@ YAML 配置  ──►  generator.py  ──►  module/gen_*.py  ──►  tem
   (yml/)         (主入口)          (模式生成器)         (Jinja2 模板)           (完整产物)
 ```
 
-## 🧩 十二种生成模式
+## 🧩 十三种生成模式
 
 | 模式 | 说明 | 适用场景 |
 |------|------|---------|
@@ -87,6 +87,7 @@ YAML 配置  ──►  generator.py  ──►  module/gen_*.py  ──►  tem
 | `master-details-tabs-with-file` | 主多明细页签 + 附件 | 带文件的多明细 |
 | `master-details-tabs-dialog` | 主多明细（页签弹窗） | 弹窗编辑的复杂主从 |
 | `master-details-tabs-dialog-with-file` | 页签弹窗 + 附件 | 带文件的页签弹窗 |
+| `cloud-service` | 微服务独立服务（三件套） | 拆模式微服务骨架（api 契约/model/service） |
 
 每种模式均有对应的 `templates/{mode}/` 模板目录和 `config/test/` 示例配置。
 
@@ -121,7 +122,7 @@ modules:
   - name: "单表无附件"   # 模块中文名
     code: "t1000"       # 模块编码（英文小写）
     domain: "test"      # 业务域编码
-    mode: "single"      # 生成模式（12 种之一）
+    mode: "single"      # 生成模式（13 种之一）
     fields:             # 字段清单（type 决定 Java/SQL/Vue 三端类型）
       - { name: "title", label: "标题", type: "input", required: true }
       - { name: "status", label: "状态", type: "select" }
@@ -147,7 +148,7 @@ python -m pytest tests/ -q   # 12 用例：配置加载/类型转换/DRY_RUN 零
 | `--mode <mode>` | 覆盖 YAML 中的 mode |
 | `--validate` / `-v` | 仅校验配置，不生成 |
 | `--list` / `-l` | 列出配置内的模块 |
-| `--list-modes` | 列出全部 12 种支持的模式 |
+| `--list-modes` | 列出全部 13 种支持的模式 |
 | `--dry-run` | 预览将生成的文件列表，零落盘 |
 | `--update-index` / `-u` | 仅重建 config/index.json 索引 |
 | `--batch-timestamp <ts>` | 批量模式共享日志时间戳 |
@@ -175,7 +176,7 @@ libra-boot-low/
 │   ├── field_builder.py    # 字段构建器
 │   ├── template_renderer.py # Jinja2 渲染器
 │   └── gen_*.py            # 各模式生成器
-├── templates/              # Jinja2 模板（12 种模式）
+├── templates/              # Jinja2 模板（13 种模式）
 │   ├── single/
 │   ├── single-with-file/
 │   ├── multi-table/
